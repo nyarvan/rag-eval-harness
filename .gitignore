@@ -7,3 +7,9 @@ __pycache__/
 
 # downloaded datasets and caches
 data/
+
+# notes and plans stay local; only the README is tracked
+*.md
+!README.md
+
+graphify-out/
