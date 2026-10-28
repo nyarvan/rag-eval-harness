@@ -64,7 +64,9 @@ class HotpotSubset:
 
 
 def paragraph_text(sentences: Sequence[str]) -> str:
-    """Join sentences into a paragraph; all but the first start with a space."""
+    """
+    Join sentences into a paragraph; all but the first start with a space.
+    """
     return ''.join(sentences).strip()
 
 
