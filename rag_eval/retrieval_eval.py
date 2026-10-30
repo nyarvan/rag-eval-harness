@@ -7,7 +7,8 @@ the key metric for multi-hop questions) and `recall@k` for all questions and
 for each question type.
 """
 import argparse
-from collections.abc import Mapping, Sequence
+import gc
+from collections.abc import Callable, Mapping, Sequence
 from statistics import fmean
 
 from significance import format_comparisons
@@ -68,6 +69,25 @@ def evaluate_retrieval(
     }
 
 
+def rank_in_turn(
+        factories: Mapping[str, Callable[[], Retriever]],
+        questions: Sequence[Question], k: int,
+) -> dict[str, list[list[str]]]:
+    """Rank the questions with each retriever, one retriever at a time.
+
+    A retriever is built when its turn comes and dropped before the next one is
+    built, so two cross-encoders never sit in memory together, and a retriever
+    that reads a score cache at construction sees what the previous one wrote.
+    """
+    rankings = {}
+    for name, make in factories.items():
+        retriever = make()
+        rankings[name] = retriever.retrieve_many(questions, k)
+        del retriever
+        gc.collect()
+    return rankings
+
+
 def format_table(
         results: Mapping[str, Mapping[str, float]], ks: Sequence[int],
 ) -> str:
@@ -86,12 +106,18 @@ def format_table(
     return '\n\n'.join(blocks)
 
 
-def build_retrievers(
+def retriever_factories(
         names: Sequence[str], documents: Sequence[Document], depth: int,
-) -> dict[str, Retriever]:
-    """The named retrievers; the ones they share are built once."""
+) -> dict[str, Callable[[], Retriever]]:
+    """A builder for each named retriever; dense, BM25 and hybrid are shared.
+
+    A reranker is not built until its turn (see `rank_in_turn`), because it
+    holds a cross-encoder of about 2 GB.
+    """
     dense = DenseRetriever(EMBEDDING_MODEL, documents, subset_size=DEFAULT_N)
-    needs_bm25 = any(name.split('+')[0] in ('bm25', 'hybrid') for name in names)
+    needs_bm25 = any(
+        name.split('+')[0] in ('bm25', 'hybrid') for name in names
+    )
     bm25 = BM25Retriever(documents) if needs_bm25 else None
     hybrid = HybridRetriever([dense, bm25], depth=depth) if bm25 else None
     built = {
@@ -104,7 +130,7 @@ def build_retrievers(
             hybrid, documents, candidates_k=WIDE_CANDIDATES_K
         ),
     }
-    return {name: built[name]() for name in names}
+    return {name: built[name] for name in names}
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -139,14 +165,10 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     subset = load_hotpotqa()
     questions = subset.questions[:args.n]
-    retrievers = build_retrievers(
+    factories = retriever_factories(
         args.retrievers, subset.documents, args.depth
     )
-    deepest = max(args.ks)
-    rankings = {
-        name: retriever.retrieve_many(questions, deepest)
-        for name, retriever in retrievers.items()
-    }
+    rankings = rank_in_turn(factories, questions, max(args.ks))
     groups = {'all': list(range(len(questions)))}
     for kind in sorted({q.type for q in questions}):
         groups[kind] = [i for i, q in enumerate(questions) if q.type == kind]
