@@ -150,6 +150,42 @@ runs are also scored by an LLM judge (`gpt-4o-mini`) with four RAGAS metrics:
   goes from 0.738 to 0.755, which is not significant (p ≈ 0.77). With `gpt-4o`
   as the generator it is 0.778 (p ≈ 0.20).
 
+### Cost
+
+Upper-bound estimates for 200 questions from the tool's own formula (see
+[Command line](#command-line)), not amounts from a bill; prices are
+approximate and cached replies are free.
+
+| Step | Requests | Estimate |
+|---|---|---|
+| Answers with `gpt-4o-mini`, 3 / 5 / 10 paragraphs | 200 each | $0.02 / $0.03 / $0.05 |
+| Answers with reasoning (output capped at 512 tokens) | 200 | up to $0.09 |
+| Answers with `gpt-4o`, 5 paragraphs | 200 | $0.54 |
+| RAGAS, all four metrics | about 2,100 | $0.57 |
+| RAGAS, `factual_correctness` only | about 600 | $0.16 |
+
+Retrieval, reranking and the comparisons make no paid calls. On a CPU, embedding
+the corpus took about 9 minutes and reranking 200 questions with 30 candidates
+about 20 minutes, once; later runs read the caches. All experiments in this
+README, with every prompt variant, come to roughly $2–3 at these prices.
+
+## Limitations
+
+- **A small, easy corpus.** The distractor setting has 1990 paragraphs, ten per
+  question, which is much easier than searching an open collection. Dense
+  retrieval is already strong here, so the result for BM25 and hybrid search
+  may not carry over to a large corpus with rare names.
+- **200 questions, one seed.** The intervals are wide. Reranking and the gap
+  between BM25 and dense are clearly significant; the differences between
+  prompts, reasoning and `gpt-4o` are within noise or on its edge.
+- **The judge is also an LLM.** `gpt-4o-mini` scores answers that `gpt-4o-mini`
+  wrote, so absolute RAGAS values may be inflated. `faithfulness` and
+  `context_precision` are unreliable for very short answers and for yes/no.
+- **Exact match measures annotation style**, not only correctness. Read it next
+  to F1 and the judge.
+- **One setup.** One embedding model, one reranker, one dataset; timings come
+  from a single 8 GB laptop.
+
 ## Quick start
 
 Python 3.11+. The `embedding-benchmark-harness` package is a dependency.
