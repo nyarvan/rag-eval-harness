@@ -67,6 +67,14 @@ By question type at `@5`: bridge 0.706 → 0.865, comparison 0.967 → 1.000.
   correct ones. Even with both gold paragraphs in the context about a fifth of
   the answers are still judged wrong, so part of the remaining error sits in
   the references and the questions, not in the model.
+- **The worst answers fail in retrieval, and the judge is right about them.**
+  Of the five lowest RAGAS scores in the dense baseline, four lost the second
+  supporting paragraph (in three cases it was outside the top 10) and one was a
+  counting mistake in generation. Reranking recovered three of the eight
+  questions scored zero and `gpt-4o` one more. Three stay lost: their second
+  paragraph is linked to the question only through the first one and sits
+  around position 100 of 1990 in the dense ranking, out of reach of a reranker
+  over the top 30.
 
 Caveats: one sample of 200 questions, one generator, one seed. Differences of a
 few points are not significant; for the reranking gain, 19 questions improved
