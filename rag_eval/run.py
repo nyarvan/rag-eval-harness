@@ -68,8 +68,11 @@ def summarize(records: Sequence[RunRecord]) -> dict[str, float]:
     return evaluate_records(records, RECALL_KS)
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+def build_parser(add_help: bool = True) -> argparse.ArgumentParser:
+    """The flags of the run command."""
+    parser = argparse.ArgumentParser(
+        description=__doc__.split('\n')[0], add_help=add_help
+    )
     parser.add_argument('--n', type=int, default=DEFAULT_RUN_QUESTIONS)
     parser.add_argument('--out', default=DEFAULT_OUT)
     parser.add_argument('--model', default=DEFAULT_MODEL)
@@ -94,8 +97,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         '--env-file', help='dotenv file with OPENAI_API_KEY (not printed)'
     )
-    args = parser.parse_args(argv)
+    return parser
 
+
+def execute(args: argparse.Namespace) -> None:
+    """Run the pipeline the parsed flags describe and save the run file."""
     if args.env_file:
         from dotenv import load_dotenv
         load_dotenv(args.env_file)
@@ -122,6 +128,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     for name, value in summarize(records).items():
         print(f'{name}: {value:.3f}')
     print(f'{len(records)} records -> {args.out}')
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    execute(build_parser().parse_args(argv))
 
 
 if __name__ == '__main__':

@@ -174,8 +174,11 @@ async def _score_one(
     return float(value)
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+def build_parser(add_help: bool = True) -> argparse.ArgumentParser:
+    """The flags of the scoring command."""
+    parser = argparse.ArgumentParser(
+        description=__doc__.split('\n')[0], add_help=add_help
+    )
     parser.add_argument('run_file', help='run file written by rag_eval.run')
     parser.add_argument('--out', help='scores file (default: ragas_<name>)')
     parser.add_argument('--n', type=int, help='score only the first N records')
@@ -189,8 +192,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         '--env-file', help='dotenv file with OPENAI_API_KEY (not printed)'
     )
-    args = parser.parse_args(argv)
+    return parser
 
+
+def execute(args: argparse.Namespace) -> None:
+    """Score the run file the parsed flags name and save the scores."""
     if args.env_file:
         from dotenv import load_dotenv
         load_dotenv(args.env_file)
@@ -206,6 +212,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     for name, value in summarize_scores(rows).items():
         print(f'{name}: {value if value is None else round(value, 3)}')
     print(f'{len(rows)} records -> {out}')
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    execute(build_parser().parse_args(argv))
 
 
 if __name__ == '__main__':
