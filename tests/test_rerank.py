@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from rag_eval.data import Document, Question
@@ -181,3 +183,39 @@ def test_k_outside_one_to_candidates_k_is_rejected(tmp_path, k):
 def test_candidates_k_must_be_positive(tmp_path):
     with pytest.raises(ValueError):
         make_retriever(tmp_path, FakeScorer({}), candidates_k=0)
+
+
+def test_retrieve_many_scores_all_questions_in_one_call(tmp_path):
+    scorer = FakeScorer({'A': 0.1, 'B': 0.9, 'C': 0.5, 'D': 0.7})
+    retriever, _ = make_retriever(tmp_path, scorer)
+    questions = [make_question('x?', '1'), make_question('y?', '2')]
+
+    retriever.retrieve_many(questions, 2)
+
+    assert len(scorer.calls) == 1
+    assert len(scorer.scored_pairs) == 8
+
+
+def test_cache_is_written_once_per_retrieve_many(tmp_path, monkeypatch):
+    scorer = FakeScorer({'A': 0.1, 'B': 0.9, 'C': 0.5, 'D': 0.7})
+    retriever, _ = make_retriever(tmp_path, scorer)
+    replaced: list[object] = []
+    real_replace = os.replace
+    monkeypatch.setattr(
+        os, 'replace', lambda *args: (replaced.append(args), real_replace(*args))
+    )
+    questions = [make_question('x?', '1'), make_question('y?', '2')]
+
+    retriever.retrieve_many(questions, 2)
+
+    assert len(replaced) == 1
+
+
+def test_repeated_pair_is_scored_once(tmp_path):
+    scorer = FakeScorer({'A': 0.1, 'B': 0.9, 'C': 0.5, 'D': 0.7})
+    retriever, _ = make_retriever(tmp_path, scorer)
+    questions = [make_question('same?', '1'), make_question('same?', '2')]
+
+    retriever.retrieve_many(questions, 2)
+
+    assert len(scorer.scored_pairs) == 4
