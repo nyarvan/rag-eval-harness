@@ -223,18 +223,22 @@ cross-encoder of about 2 GB.
 
 ## Run file format
 
-One JSON object per question:
+One JSON object per question. A run file from any RAG pipeline works, as long
+as it has the required fields:
 
-| Field | Meaning |
-|---|---|
-| `question_id`, `question` | The HotpotQA question |
-| `contexts` | Paragraphs shown to the generator (`Title: …\nText: …`) |
-| `answer` | The model's answer |
-| `reference` | The gold answer |
-| `retrieved` | Ranked titles returned by retrieval |
-| `gold_titles` | The supporting paragraph titles |
+| Field | Meaning | Required |
+|---|---|---|
+| `question_id`, `question` | The question and a non-empty id | yes |
+| `contexts` | Paragraphs shown to the generator (`Title: …\nText: …`) | yes |
+| `answer` | The model's answer (may be empty) | yes |
+| `reference` | The gold answer | yes |
+| `retrieved` | Ranked titles returned by retrieval | no |
+| `gold_titles` | The supporting paragraph titles | no |
 
-`question`, `contexts`, `answer` and `reference` are the names RAGAS expects.
+`retrieved` and `gold_titles` are only needed for the retrieval metrics. Other
+fields in a line are ignored. Reading validates every line, and an error names
+the file and the line (`runs/x.jsonl:17: …`). `question`, `contexts`, `answer`
+and `reference` are the names RAGAS expects.
 
 ## Project layout
 
@@ -283,7 +287,7 @@ One JSON object per question:
 pytest
 ```
 
-The suite (195 tests) covers the metrics on toy data, the retrievers, rank
+The suite (214 tests) covers the metrics on toy data, the retrievers, rank
 fusion, comparisons, generation, the run pipeline and RAGAS scoring with fake
 models. Tests marked `integration` download the real HotpotQA split and need
 network on the first run.
