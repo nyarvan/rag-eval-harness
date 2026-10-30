@@ -51,7 +51,7 @@ class BM25Retriever:
             for row, row_scores in zip(indices.tolist(), scores.tolist())
         ]
 
-    def _tokenize(self, texts: Sequence[str]):
+    def _tokenize(self, texts: Sequence[str]) -> bm25s.tokenization.Tokenized:
         return bm25s.tokenize(
             list(texts), stopwords=STOPWORDS, stemmer=self._stemmer,
             show_progress=False,

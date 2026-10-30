@@ -1,3 +1,7 @@
+"""Retrieval and answer metrics: recall@k, all-gold@k, exact match, token F1.
+
+`normalize_answer` and `f1` follow the official HotpotQA evaluation script.
+"""
 from collections import Counter
 from collections.abc import Collection, Sequence
 import re
