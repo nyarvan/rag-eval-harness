@@ -24,6 +24,7 @@ question ──► dense search ──► top-30 ──► cross-encoder rerank 
 | dense, 5 paragraphs | 0.455 | 0.609 | 74.5% |
 | dense, 10 paragraphs | 0.485 | 0.646 | 87.5% |
 | **dense + rerank, 5 paragraphs** | **0.500** | **0.668** | **88.5%** |
+| dense + rerank, reasoning before the answer | 0.525 | 0.699 | 88.5% |
 
 Retrieval quality (`all_gold@k`: both supporting paragraphs found in the top k,
 the key metric for multi-hop questions):
@@ -52,6 +53,12 @@ By question type at `@5`: bridge 0.706 → 0.865, comparison 0.967 → 1.000.
   instruction fixed a refusal on a question whose answer was in the context.
   Asking for verbatim, full-name answers made answers longer (2.2 to 3.5
   words) and lowered EM from 0.500 to 0.450.
+- **Reasoning before the answer helps a little.** Letting the model think in a
+  few sentences and then write a `Final answer:` line (`--cot`) moves EM from
+  0.500 to 0.525 and F1 from 0.668 to 0.699. That is within noise (p ≈ 0.06
+  for F1, higher for EM and the judge). The gain comes from `comparison`
+  questions (judge 0.811 → 0.911 on 30 questions); `bridge` questions, 85% of
+  the sample, do not move.
 
 Caveats: one sample of 200 questions, one generator, one seed. Differences of a
 few points are not significant; for the reranking gain, 19 questions improved
@@ -80,6 +87,8 @@ runs are also scored by an LLM judge (`gpt-4o-mini`) with four RAGAS metrics:
   short name. `faithfulness` can penalize correct answers that are inferred
   rather than quoted. The judge is the same model as the generator, which may
   inflate absolute scores; it likely affects both configurations alike.
+- With reasoning before the answer, `factual_correctness` on the reranked run
+  goes from 0.738 to 0.755, which is not significant (p ≈ 0.77).
 
 ## Quick start
 
@@ -126,6 +135,7 @@ Options of `rag_eval.run`:
 | `--context-k` | 5 | Paragraphs passed to the generator |
 | `--rerank` | off | Rerank dense candidates with the cross-encoder |
 | `--candidates-k` | 30 | Candidates handed to the reranker |
+| `--cot` | off | Let the model reason briefly and read the answer from its `Final answer:` line |
 | `--env-file` | none | Dotenv file with `OPENAI_API_KEY` |
 
 The script prints `recall@k`, `all_gold@k`, EM and F1 and writes a JSONL run
@@ -134,7 +144,8 @@ file.
 `rag_eval.ragas_eval` reads a run file and writes `runs/ragas_<name>.jsonl`:
 one object per question with its id and the four metric scores (`null` where a
 metric failed). Options: `--n` (first N records), `--judge` (default
-`gpt-4o-mini`), `--concurrency` (default 8), `--out`, `--env-file`. Judge
+`gpt-4o-mini`), `--metrics` (a subset of the four), `--concurrency`
+(default 8), `--out`, `--env-file`. Judge
 replies are cached on disk, so repeating a run is free; a full 200-question run
 took about 15 minutes.
 
@@ -192,7 +203,7 @@ One JSON object per question:
 pytest
 ```
 
-The suite (119 tests) covers the metrics on toy data, retrieval, reranking,
+The suite (134 tests) covers the metrics on toy data, retrieval, reranking,
 generation, the run pipeline and RAGAS scoring with fake models. Tests marked `integration`
 download the real HotpotQA split and need network on the first run.
 
