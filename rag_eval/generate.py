@@ -24,7 +24,6 @@ SYSTEM_PROMPT = (
     'Reply with the shortest possible answer: a few words, not a sentence. '
     'If the question can be answered with yes or no, reply with exactly '
     '"yes" or "no". '
-    'If the context does not contain the answer, reply "noanswer".'
 )
 
 
