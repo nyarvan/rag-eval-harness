@@ -7,13 +7,12 @@ many of those passages the generator actually reads.
 """
 import argparse
 from collections.abc import Sequence
-from statistics import fmean
 from typing import Protocol
 
 from .data import DEFAULT_N, Document, Question, load_hotpotqa
+from .evaluate import evaluate_records
 from .generate import COT_MAX_TOKENS, Generator, OpenAIChat, format_context
 from .generate import DEFAULT_MODEL as DEFAULT_CHAT_MODEL
-from .metrics import all_gold_at_k, exact_match, f1, recall_at_k
 from .records import RunRecord, write_records
 from .rerank import DEFAULT_CANDIDATES_K, RerankedRetriever
 from .retrieve import DenseRetriever
@@ -65,20 +64,8 @@ def run_dense(
 
 
 def summarize(records: Sequence[RunRecord]) -> dict[str, float]:
-    """Mean recall@k, all_gold@k, EM and F1 over the records."""
-    if not records:
-        raise ValueError('records must not be empty')
-    summary = {}
-    for k in RECALL_KS:
-        summary[f'recall@{k}'] = fmean(
-            recall_at_k(r.retrieved, r.gold_titles, k) for r in records
-        )
-        summary[f'all_gold@{k}'] = fmean(
-            all_gold_at_k(r.retrieved, r.gold_titles, k) for r in records
-        )
-    summary['em'] = fmean(exact_match(r.answer, r.reference) for r in records)
-    summary['f1'] = fmean(f1(r.answer, r.reference) for r in records)
-    return summary
+    """Mean EM, F1, recall@k and all_gold@k over the records."""
+    return evaluate_records(records, RECALL_KS)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
