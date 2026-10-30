@@ -188,7 +188,9 @@ def test_final_answer_is_the_text_after_the_last_marker():
 
 
 def test_final_answer_marker_is_case_insensitive_and_stripped():
-    assert extract_final_answer('Thinking.\nfinal ANSWER:   Paris \n') == 'Paris'
+    reply = 'Thinking.\nfinal ANSWER:   Paris \n'
+
+    assert extract_final_answer(reply) == 'Paris'
 
 
 def test_final_answer_stops_at_the_end_of_its_line():
@@ -201,12 +203,46 @@ def test_final_answer_may_start_on_the_next_line():
     assert extract_final_answer('Final answer:\nParis') == 'Paris'
 
 
-def test_missing_marker_gives_empty_answer_and_a_warning(caplog):
+def test_cut_off_reasoning_gives_empty_answer_and_a_warning(caplog):
+    reply = 'The context says Paris is the capital.\nThe question asks about'
+
     with caplog.at_level(logging.WARNING):
-        answer = extract_final_answer('The context says Paris, but')
+        answer = extract_final_answer(reply)
 
     assert answer == ''
     assert 'Final answer' in caplog.text
+
+
+def test_long_single_line_without_marker_is_not_taken_as_an_answer():
+    assert extract_final_answer(' '.join(['word'] * 30)) == ''
+
+
+def test_empty_reply_gives_empty_answer_and_a_warning(caplog):
+    with caplog.at_level(logging.WARNING):
+        assert extract_final_answer('  \n') == ''
+
+    assert 'Final answer' in caplog.text
+
+
+@pytest.mark.parametrize(
+    'reply', ['Gary Oldman', 'No\n', '  Poi, Kalua pig, poke  ']
+)
+def test_short_bare_reply_without_marker_is_the_answer(reply):
+    assert extract_final_answer(reply) == reply.strip()
+
+
+def test_cached_replies_are_parsed_again_when_read(tmp_path):
+    chat = FakeChat(reply='unused')
+    user = build_user_prompt('Why?', CONTEXTS)
+    path = tmp_path / f'{cache_key(chat.name, COT_SYSTEM_PROMPT, user)}.json'
+    path.write_text(
+        json.dumps({'reply': 'Gary Oldman', 'answer': ''}), encoding='utf-8'
+    )
+
+    answer = Generator(chat, tmp_path, reasoning=True).answer('Why?', CONTEXTS)
+
+    assert answer == 'Gary Oldman'
+    assert chat.calls == []
 
 
 def test_cot_prompt_asks_for_the_marker_and_keeps_the_yes_no_rule():

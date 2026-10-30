@@ -43,6 +43,7 @@ COT_SYSTEM_PROMPT = (
     'If the question can be answered with yes or no, the answer is exactly '
     '"yes" or "no".'
 )
+MAX_BARE_ANSWER_WORDS = 12
 _FINAL_ANSWER = re.compile(r'final answer:\s*(.*)', re.IGNORECASE)
 
 
@@ -110,14 +111,19 @@ def build_user_prompt(question: str, contexts: Sequence[Document]) -> str:
 def extract_final_answer(reply: str) -> str:
     """The text after the last `Final answer:` marker, up to the line's end.
 
-    A reply without the marker (for example one cut off by the token limit)
-    gives an empty answer and a warning, so it is never mistaken for a guess.
+    Without the marker, a reply that is one short line is the answer itself:
+    the model skipped the reasoning. Anything else (for example reasoning cut
+    off by the token limit) gives an empty answer and a warning, so it is
+    never mistaken for a guess.
     """
     matches = _FINAL_ANSWER.findall(reply)
-    if not matches:
-        logger.warning('No "%s" in reply: %r', FINAL_ANSWER_MARKER, reply[-80:])
-        return ''
-    return matches[-1].strip()
+    if matches:
+        return matches[-1].strip()
+    bare = reply.strip()
+    if bare and '\n' not in bare and len(bare.split()) <= MAX_BARE_ANSWER_WORDS:
+        return bare
+    logger.warning('No "%s" in reply: %r', FINAL_ANSWER_MARKER, reply[-80:])
+    return ''
 
 
 def cache_key(model_name: str, system: str, user: str) -> str:
@@ -150,7 +156,12 @@ class Generator:
         key = cache_key(self._chat.name, self._system, user)
         path = self._cache_dir / f'{key}.json'
         if path.exists():
-            return json.loads(path.read_text(encoding='utf-8'))['answer']
+            record = json.loads(path.read_text(encoding='utf-8'))
+            # Reasoning replies are parsed again, so a better parser also
+            # applies to answers that were paid for under an older one
+            if self._reasoning:
+                return extract_final_answer(record['reply'])
+            return record['answer']
         reply = self._chat.complete(self._system, user)
         answer = (
             extract_final_answer(reply) if self._reasoning else reply.strip()
