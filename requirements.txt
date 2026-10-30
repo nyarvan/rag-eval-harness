@@ -2,6 +2,8 @@
 # For local development: pip install -e ../embedding-benchmark-harness
 embedding-benchmark-harness @ git+https://github.com/nyarvan/embedding-benchmark-harness.git@47edc16c96fb568b558273ba285cf9dfc67172d1
 
+bm25s==0.3.16
+PyStemmer==3.1.0
 huggingface_hub==2.3.0
 pyarrow==26.0.0
 pydantic==2.14.1
