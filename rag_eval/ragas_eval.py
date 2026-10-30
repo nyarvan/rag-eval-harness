@@ -132,8 +132,9 @@ def read_scores(path: str | Path) -> list[RecordScores]:
 
 def build_metrics(
         judge: str = DEFAULT_JUDGE, cache_dir: str | Path = DEFAULT_CACHE_DIR,
+        names: Sequence[str] = tuple(METRIC_INPUTS),
 ) -> dict[str, Metric]:
-    """The four RAGAS metrics, all judged by `judge` through OpenAI."""
+    """The named RAGAS metrics (all four by default), judged by `judge`."""
     from openai import AsyncOpenAI
     from ragas.cache import DiskCacheBackend
     from ragas.llms import llm_factory
@@ -149,12 +150,13 @@ def build_metrics(
         cache=DiskCacheBackend(cache_dir=str(cache_dir)),
         temperature=JUDGE_TEMPERATURE,
     )
-    return {
-        'factual_correctness': FactualCorrectness(llm=llm),
-        'faithfulness': Faithfulness(llm=llm),
-        'context_recall': ContextRecall(llm=llm),
-        'context_precision': ContextPrecision(llm=llm),
+    classes = {
+        'factual_correctness': FactualCorrectness,
+        'faithfulness': Faithfulness,
+        'context_recall': ContextRecall,
+        'context_precision': ContextPrecision,
     }
+    return {name: classes[name](llm=llm) for name in names}
 
 
 async def _score_one(
@@ -178,6 +180,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument('--out', help='scores file (default: ragas_<name>)')
     parser.add_argument('--n', type=int, help='score only the first N records')
     parser.add_argument('--judge', default=DEFAULT_JUDGE)
+    parser.add_argument(
+        '--metrics', nargs='+', choices=list(METRIC_INPUTS),
+        default=list(METRIC_INPUTS), help='metrics to compute (default: all)'
+    )
     parser.add_argument('--concurrency', type=int, default=DEFAULT_CONCURRENCY)
     parser.add_argument('--cache-dir', default=DEFAULT_CACHE_DIR)
     parser.add_argument(
@@ -193,7 +199,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     out = args.out or run_path.with_name(f'ragas_{run_path.name}')
     records = read_records(run_path)[:args.n]
     rows = asyncio.run(score_records(
-        records, build_metrics(args.judge, args.cache_dir),
+        records, build_metrics(args.judge, args.cache_dir, args.metrics),
         concurrency=args.concurrency,
     ))
     write_scores(out, rows)
