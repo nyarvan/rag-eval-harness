@@ -14,6 +14,7 @@ from .data import DEFAULT_N, Document, Question, load_hotpotqa
 from .generate import Generator, OpenAIChat, format_context
 from .metrics import all_gold_at_k, exact_match, f1, recall_at_k
 from .records import RunRecord, write_records
+from .rerank import DEFAULT_CANDIDATES_K, RerankedRetriever
 from .retrieve import DenseRetriever
 
 RETRIEVE_K = 10
@@ -42,7 +43,8 @@ def run_dense(
     """Retrieve for all questions in one batch, then answer each of them."""
     if context_k > retrieve_k:
         raise ValueError(
-            f'context_k ({context_k}) must not exceed retrieve_k ({retrieve_k})'
+            f'context_k ({context_k}) must not exceed '
+            f'retrieve_k ({retrieve_k})'
         )
     by_title = {document.doc_id: document for document in documents}
     ranked = retriever.retrieve_many(questions, retrieve_k)
@@ -86,6 +88,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument('--retrieve-k', type=int, default=RETRIEVE_K)
     parser.add_argument('--context-k', type=int, default=CONTEXT_K)
     parser.add_argument(
+        '--rerank', action='store_true',
+        help='rerank the dense candidates with a cross-encoder'
+    )
+    parser.add_argument(
+        '--candidates-k', type=int, default=DEFAULT_CANDIDATES_K,
+        help='dense candidates passed to the reranker'
+    )
+    parser.add_argument(
         '--env-file', help='dotenv file with OPENAI_API_KEY (not printed)'
     )
     args = parser.parse_args(argv)
@@ -99,6 +109,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     retriever = DenseRetriever(
         args.model, subset.documents, subset_size=DEFAULT_N
     )
+    if args.rerank:
+        retriever = RerankedRetriever(
+            retriever, subset.documents, candidates_k=args.candidates_k
+        )
     generator = Generator(OpenAIChat())
     records = run_dense(
         questions, subset.documents, retriever, generator,
