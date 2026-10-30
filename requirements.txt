@@ -1,4 +1,4 @@
-# Week-1 harness: embeddings, cache, significance tests.
+# embedding-benchmark-harness: embeddings, cache, significance tests.
 # For local development: pip install -e ../embedding-benchmark-harness
 embedding-benchmark-harness @ git+https://github.com/nyarvan/embedding-benchmark-harness.git@47edc16c96fb568b558273ba285cf9dfc67172d1
 

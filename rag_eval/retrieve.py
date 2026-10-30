@@ -1,4 +1,4 @@
-"""Dense retrieval over the HotpotQA corpus, reusing the week-1 harness.
+"""Dense retrieval over the HotpotQA corpus, on embedding-benchmark-harness.
 
 Paragraph embeddings are cached on disk under the harness cache layout
 `<data_dir>/<dataset>-<subset_size>/<model>/documents.npz`. Queries are cheap
