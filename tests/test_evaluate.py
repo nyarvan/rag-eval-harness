@@ -44,13 +44,13 @@ def test_only_the_requested_ks_are_reported():
 
 
 def test_records_without_retrieval_fields_get_answer_metrics_only():
-    records = [make_record('1', retrieved=(), gold=())]
+    records = [make_record('1', retrieved=None, gold=None)]
 
     assert set(evaluate_records(records)) == {'em', 'f1'}
 
 
 def test_retrieval_fields_in_only_some_records_are_an_error():
-    records = [make_record('1'), make_record('2', retrieved=(), gold=())]
+    records = [make_record('1'), make_record('2', retrieved=None, gold=None)]
 
     with pytest.raises(ValueError, match='1 of 2'):
         evaluate_records(records)
@@ -59,3 +59,17 @@ def test_retrieval_fields_in_only_some_records_are_an_error():
 def test_no_records_are_rejected():
     with pytest.raises(ValueError):
         evaluate_records([])
+
+
+def test_a_retriever_that_found_nothing_scores_zero_recall():
+    records = [make_record('1', retrieved=()), make_record('2')]
+
+    result = evaluate_records(records, ks=(5,))
+
+    assert result['recall@5'] == 0.5
+    assert result['all_gold@5'] == 0.5
+
+
+def test_empty_gold_titles_are_a_data_error():
+    with pytest.raises(ValueError):
+        evaluate_records([make_record(gold=())], ks=(5,))

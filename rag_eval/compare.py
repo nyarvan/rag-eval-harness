@@ -17,11 +17,11 @@ from significance import (
 )
 
 from .data import Question
+from .evaluate import DEFAULT_KS
 from .metrics import all_gold_at_k, exact_match, f1, recall_at_k
 from .records import RunRecord
 
 METRICS = {'all_gold': all_gold_at_k, 'recall': recall_at_k}
-DEFAULT_KS = (5, 10)
 DEFAULT_RESAMPLES = 10_000
 
 
@@ -78,6 +78,9 @@ def compare_runs(
     and `recall@k`, which need `retrieved` and `gold_titles` in every record.
     """
     baseline = _choose_baseline(runs, baseline)
+    for name, records in runs.items():
+        if not records:
+            raise ValueError(f'run {name!r} is empty')
     indexed = {
         name: _by_question(name, records) for name, records in runs.items()
     }
@@ -167,7 +170,10 @@ def _run_scores(
         'em': np.array([exact_match(r.answer, r.reference) for r in records]),
         'f1': np.array([f1(r.answer, r.reference) for r in records]),
     }
-    if ks and not all(r.gold_titles and r.retrieved for r in records):
+    if ks and not all(
+            r.gold_titles is not None and r.retrieved is not None
+            for r in records
+    ):
         raise ValueError(
             'retrieval metrics need retrieved and gold_titles in every record'
         )

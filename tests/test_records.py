@@ -48,7 +48,7 @@ def test_retrieved_and_gold_titles_are_optional(tmp_path):
 
     [record] = read_records(path)
 
-    assert record.retrieved == () and record.gold_titles == ()
+    assert record.retrieved is None and record.gold_titles is None
 
 
 def test_unknown_fields_are_ignored(tmp_path):
@@ -149,3 +149,12 @@ def test_the_file_has_one_json_object_per_line_with_the_ragas_fields(tmp_path):
     first = json.loads(lines[0])
     assert {'question', 'contexts', 'answer', 'reference'} <= set(first)
     assert first['contexts'] == ['Title: A\nText: a']
+
+
+def test_an_empty_retrieved_list_is_kept_not_treated_as_missing(tmp_path):
+    path = tmp_path / 'run.jsonl'
+    write_lines(path, {**VALID, 'retrieved': []})
+
+    [record] = read_records(path)
+
+    assert record.retrieved == ()

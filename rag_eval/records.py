@@ -18,7 +18,9 @@ class RunRecord(BaseModel):
 
     `contexts` are the passages given to the generator, `retrieved` the
     ranked titles the retriever returned (possibly more than were used).
-    `retrieved` and `gold_titles` are only needed for retrieval metrics.
+    `retrieved` and `gold_titles` are only needed for retrieval metrics;
+    None means the field is absent, while an empty `retrieved` means the
+    retriever found nothing.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -28,8 +30,8 @@ class RunRecord(BaseModel):
     contexts: tuple[str, ...]
     answer: str
     reference: str
-    retrieved: tuple[str, ...] = ()
-    gold_titles: tuple[str, ...] = ()
+    retrieved: tuple[str, ...] | None = None
+    gold_titles: tuple[str, ...] | None = None
 
 
 def write_records(path: str | Path, records: Iterable[RunRecord]) -> None:

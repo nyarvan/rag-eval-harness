@@ -47,6 +47,7 @@ def run_cli(argv, **kwargs):
     kwargs.setdefault('run_fn', Spy())
     kwargs.setdefault('ragas_fn', Spy())
     kwargs.setdefault('corpus_chars_fn', lambda: 400.0)
+    kwargs.setdefault('question_count_fn', lambda: 200)
     kwargs.setdefault('confirm_fn', only_with_flag)
     return main(argv, **kwargs)
 
@@ -184,7 +185,7 @@ def test_compare_skips_retrieval_metrics_without_the_fields(tmp_path, capsys):
     a, b = tmp_path / 'a.jsonl', tmp_path / 'b.jsonl'
     for path in (a, b):
         write_records(path, [
-            make_record(str(i), retrieved=(), gold=()) for i in range(1, 4)
+            make_record(str(i), retrieved=None, gold=None) for i in range(1, 4)
         ])
 
     code = run_cli(['compare', str(a), str(b)])
@@ -216,3 +217,67 @@ def test_a_command_is_required():
         run_cli([])
 
     assert stop.value.code == 2
+
+
+def test_run_rejects_context_k_above_retrieve_k_before_the_estimate(capsys):
+    spy = Spy()
+
+    code = run_cli(['run', '--context-k', '20', '--retrieve-k', '10',
+                    '--yes'], run_fn=spy)
+
+    captured = capsys.readouterr()
+    assert code == 2 and spy.calls == []
+    assert 'context_k' in captured.err and 'requests' not in captured.out
+
+
+def test_run_with_rerank_rejects_retrieve_k_above_candidates_k(capsys):
+    spy = Spy()
+
+    code = run_cli(['run', '--rerank', '--retrieve-k', '50',
+                    '--candidates-k', '30', '--yes'], run_fn=spy)
+
+    captured = capsys.readouterr()
+    assert code == 2 and spy.calls == []
+    assert 'candidates_k' in captured.err and 'requests' not in captured.out
+
+
+def test_the_estimate_counts_no_more_questions_than_exist(capsys):
+    run_cli(['run', '--n', '500', '--yes'], question_count_fn=lambda: 40)
+
+    assert '40 requests' in capsys.readouterr().out
+
+
+def test_compare_of_the_same_file_twice_is_a_clear_error(run_file, capsys):
+    code = run_cli(['compare', str(run_file), str(run_file)])
+
+    assert code == 2
+    assert 'twice' in capsys.readouterr().err
+
+
+def test_compare_keeps_retrieval_metrics_when_a_retriever_found_nothing(
+        tmp_path, capsys):
+    a, b = tmp_path / 'a.jsonl', tmp_path / 'b.jsonl'
+    write_records(a, [make_record(str(i)) for i in range(1, 4)])
+    write_records(b, [
+        make_record(str(i), retrieved=()) for i in range(1, 4)
+    ])
+
+    code = run_cli(['compare', str(a), str(b)])
+
+    assert code == 0
+    assert 'all_gold@5' in capsys.readouterr().out
+
+
+def test_same_run_file_under_two_spellings_is_rejected(tmp_path):
+    from rag_eval.cli import _read_runs
+    path = tmp_path / 'a.jsonl'
+    path.write_text('')
+    with pytest.raises(ValueError, match='twice'):
+        _read_runs([str(path), str(tmp_path / '.' / 'a.jsonl')])
+
+
+@pytest.mark.parametrize('command', [['eval', 'x.jsonl'], ['compare', 'a', 'b']])
+def test_non_positive_ks_are_rejected_by_the_parser(command):
+    from rag_eval.cli import build_parser
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([*command, '--ks', '0'])

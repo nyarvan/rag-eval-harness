@@ -27,7 +27,8 @@ def evaluate_records(
         'em': fmean(exact_match(r.answer, r.reference) for r in records),
         'f1': fmean(f1(r.answer, r.reference) for r in records),
     }
-    with_retrieval = [r for r in records if r.retrieved and r.gold_titles]
+    with_retrieval = [r for r in records if r.retrieved is not None
+                      and r.gold_titles is not None]
     if not with_retrieval:
         return result
     if len(with_retrieval) != len(records):

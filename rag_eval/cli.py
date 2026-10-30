@@ -20,9 +20,10 @@ from statistics import fmean
 from significance import format_comparisons
 
 from . import ragas_eval, run
+from .args import positive_int
 from .compare import compare_runs
 from .cost import confirm, estimate_generation, estimate_judging, format_estimate
-from .data import load_hotpotqa
+from .data import DEFAULT_N, load_hotpotqa
 from .evaluate import DEFAULT_KS, evaluate_records
 from .generate import (
     COT_MAX_TOKENS,
@@ -63,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
         help='also score with the RAGAS judge (paid)'
     )
     eval_cmd.add_argument(
-        '--ks', type=int, nargs='+', default=list(DEFAULT_KS),
+        '--ks', type=positive_int, nargs='+', default=list(DEFAULT_KS),
         help='k for recall@k and all_gold@k'
     )
     eval_cmd.add_argument(
@@ -77,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
         'run_files', nargs='+', help='the first one is the baseline'
     )
     compare_cmd.add_argument(
-        '--ks', type=int, nargs='+',
+        '--ks', type=positive_int, nargs='+',
         help='k for the retrieval metrics (default: 5 10 when the files have '
              'the fields, none otherwise)'
     )
@@ -89,6 +90,7 @@ def main(
         run_fn: Callable[[argparse.Namespace], None] = run.execute,
         ragas_fn: Callable[[argparse.Namespace], None] = ragas_eval.execute,
         corpus_chars_fn: Callable[[], float] | None = None,
+        question_count_fn: Callable[[], int] = lambda: DEFAULT_N,
         confirm_fn: Callable[..., bool] = confirm,
 ) -> int:
     """Run the command in `argv`; the keyword arguments are for tests."""
@@ -100,7 +102,7 @@ def main(
     if args.command == 'run':
         return _run_command(
             args, run_fn, corpus_chars_fn or _average_paragraph_chars,
-            confirm_fn,
+            question_count_fn, confirm_fn,
         )
     if args.command == 'eval':
         return _eval_command(args, ragas_fn, confirm_fn)
@@ -109,11 +111,23 @@ def main(
 
 def _run_command(
         args: argparse.Namespace, run_fn: Callable[[argparse.Namespace], None],
-        corpus_chars_fn: Callable[[], float], confirm_fn: Callable[..., bool],
+        corpus_chars_fn: Callable[[], float],
+        question_count_fn: Callable[[], int], confirm_fn: Callable[..., bool],
 ) -> int:
+    if args.context_k > args.retrieve_k:
+        return _invalid(ValueError(
+            f'context_k ({args.context_k}) must not exceed '
+            f'retrieve_k ({args.retrieve_k})'
+        ))
+    if args.rerank and args.retrieve_k > args.candidates_k:
+        return _invalid(ValueError(
+            f'retrieve_k ({args.retrieve_k}) must not exceed '
+            f'candidates_k ({args.candidates_k}) with --rerank'
+        ))
     system = COT_SYSTEM_PROMPT if args.cot else SYSTEM_PROMPT
     estimate = estimate_generation(
-        args.chat_model, n_questions=args.n, context_k=args.context_k,
+        args.chat_model, n_questions=min(args.n, question_count_fn()),
+        context_k=args.context_k,
         avg_paragraph_chars=corpus_chars_fn(), system_chars=len(system),
         max_output_tokens=COT_MAX_TOKENS if args.cot else DEFAULT_MAX_TOKENS,
     )
@@ -160,6 +174,8 @@ def _compare_command(args: argparse.Namespace) -> int:
 
 def _read_runs(paths: Sequence[str]) -> dict[str, list[RunRecord]]:
     """Run files by name: the file name without its extension."""
+    if len(set(paths)) != len(paths):
+        raise ValueError('a run file was given twice')
     names = [Path(path).stem for path in paths]
     if len(set(names)) != len(names):
         names = list(paths)  # same stem in different folders: use the paths
@@ -169,7 +185,7 @@ def _read_runs(paths: Sequence[str]) -> dict[str, list[RunRecord]]:
 def _default_ks(runs: dict[str, list[RunRecord]]) -> tuple[int, ...]:
     """The retrieval ks, if every record of every file has the fields."""
     complete = all(
-        r.retrieved and r.gold_titles
+        r.retrieved is not None and r.gold_titles is not None
         for records in runs.values() for r in records
     )
     return DEFAULT_KS if complete else ()

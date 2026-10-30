@@ -197,7 +197,7 @@ def test_retrieval_metrics_are_added_for_the_requested_ks():
 
 
 def test_retrieval_metrics_need_gold_titles_in_every_record():
-    no_gold = [make_record(str(i), gold=()) for i in (1, 2, 3)]
+    no_gold = [make_record(str(i), gold=None) for i in (1, 2, 3)]
 
     with pytest.raises(ValueError, match='gold_titles'):
         compare_runs({'a': RIGHT, 'b': no_gold}, ks=(2,))
@@ -225,3 +225,22 @@ def test_two_runs_are_needed_to_compare():
 def test_an_unknown_baseline_is_rejected_for_runs():
     with pytest.raises(ValueError):
         compare_runs({'a': RIGHT, 'b': WRONG}, baseline='missing')
+
+
+def test_empty_run_files_are_rejected_clearly():
+    with pytest.raises(ValueError, match='empty'):
+        compare_runs({'a': [], 'b': []})
+
+
+def test_an_empty_retrieved_list_scores_zero_in_a_comparison():
+    nothing = [make_record(str(i), retrieved=()) for i in (1, 2, 3)]
+
+    comparisons = compare_runs({'nothing': nothing, 'right': RIGHT}, ks=(2,))
+
+    assert by_metric(comparisons)['recall@2'].mean_diff == pytest.approx(1.0)
+
+
+def test_default_ks_are_defined_once():
+    from rag_eval import compare, evaluate
+
+    assert compare.DEFAULT_KS is evaluate.DEFAULT_KS
