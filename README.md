@@ -25,6 +25,7 @@ question ──► dense search ──► top-30 ──► cross-encoder rerank 
 | dense, 10 paragraphs | 0.485 | 0.646 | 87.5% |
 | **dense + rerank, 5 paragraphs** | **0.500** | **0.668** | **88.5%** |
 | dense + rerank, reasoning before the answer | 0.525 | 0.699 | 88.5% |
+| dense + rerank, `gpt-4o` as the generator | 0.550 | 0.722 | 88.5% |
 
 Retrieval quality (`all_gold@k`: both supporting paragraphs found in the top k,
 the key metric for multi-hop questions):
@@ -59,6 +60,13 @@ By question type at `@5`: bridge 0.706 → 0.865, comparison 0.967 → 1.000.
   for F1, higher for EM and the judge). The gain comes from `comparison`
   questions (judge 0.811 → 0.911 on 30 questions); `bridge` questions, 85% of
   the sample, do not move.
+- **A stronger generator helps more than reasoning.** Writing the answers with
+  `gpt-4o` instead of `gpt-4o-mini` (`--chat-model gpt-4o`) gives EM 0.550,
+  F1 0.722 and `factual_correctness` 0.778 (p ≈ 0.06 for EM, 0.2 for the
+  judge). It fixes answers that need a second hop, and it adds words to some
+  correct ones. Even with both gold paragraphs in the context about a fifth of
+  the answers are still judged wrong, so part of the remaining error sits in
+  the references and the questions, not in the model.
 
 Caveats: one sample of 200 questions, one generator, one seed. Differences of a
 few points are not significant; for the reranking gain, 19 questions improved
@@ -88,7 +96,8 @@ runs are also scored by an LLM judge (`gpt-4o-mini`) with four RAGAS metrics:
   rather than quoted. The judge is the same model as the generator, which may
   inflate absolute scores; it likely affects both configurations alike.
 - With reasoning before the answer, `factual_correctness` on the reranked run
-  goes from 0.738 to 0.755, which is not significant (p ≈ 0.77).
+  goes from 0.738 to 0.755, which is not significant (p ≈ 0.77). With `gpt-4o`
+  as the generator it is 0.778 (p ≈ 0.20).
 
 ## Quick start
 
@@ -131,6 +140,7 @@ Options of `rag_eval.run`:
 | `--n` | 20 | Number of questions |
 | `--out` | `runs/dense.jsonl` | Output run file |
 | `--model` | `bge_m3` | Embedding model name from the `embedding-benchmark-harness` registry |
+| `--chat-model` | `gpt-4o-mini` | OpenAI model that writes the answers |
 | `--retrieve-k` | 10 | Ranking depth, used for `recall@k` |
 | `--context-k` | 5 | Paragraphs passed to the generator |
 | `--rerank` | off | Rerank dense candidates with the cross-encoder |
