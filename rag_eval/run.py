@@ -11,7 +11,7 @@ from statistics import fmean
 from typing import Protocol
 
 from .data import DEFAULT_N, Document, Question, load_hotpotqa
-from .generate import Generator, OpenAIChat, format_context
+from .generate import COT_MAX_TOKENS, Generator, OpenAIChat, format_context
 from .metrics import all_gold_at_k, exact_match, f1, recall_at_k
 from .records import RunRecord, write_records
 from .rerank import DEFAULT_CANDIDATES_K, RerankedRetriever
@@ -96,6 +96,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         help='dense candidates passed to the reranker'
     )
     parser.add_argument(
+        '--cot', action='store_true',
+        help='let the model reason before it gives the final answer'
+    )
+    parser.add_argument(
         '--env-file', help='dotenv file with OPENAI_API_KEY (not printed)'
     )
     args = parser.parse_args(argv)
@@ -113,7 +117,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         retriever = RerankedRetriever(
             retriever, subset.documents, candidates_k=args.candidates_k
         )
-    generator = Generator(OpenAIChat())
+    if args.cot:
+        generator = Generator(
+            OpenAIChat(max_tokens=COT_MAX_TOKENS), reasoning=True
+        )
+    else:
+        generator = Generator(OpenAIChat())
     records = run_dense(
         questions, subset.documents, retriever, generator,
         retrieve_k=args.retrieve_k, context_k=args.context_k,

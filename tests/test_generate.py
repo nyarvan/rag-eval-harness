@@ -1,14 +1,18 @@
+import json
+import logging
 from types import SimpleNamespace
 
 import pytest
 
 from rag_eval.data import Document
 from rag_eval.generate import (
+    COT_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     Generator,
     OpenAIChat,
     build_user_prompt,
     cache_key,
+    extract_final_answer,
 )
 
 CONTEXTS = (
@@ -175,3 +179,72 @@ def test_openai_chat_rejects_empty_completion():
 
     with pytest.raises(RuntimeError):
         chat.complete('sys', 'usr')
+
+
+def test_final_answer_is_the_text_after_the_last_marker():
+    reply = 'Maybe. Final answer: no\nOn reflection.\nFinal answer: Paris'
+
+    assert extract_final_answer(reply) == 'Paris'
+
+
+def test_final_answer_marker_is_case_insensitive_and_stripped():
+    assert extract_final_answer('Thinking.\nfinal ANSWER:   Paris \n') == 'Paris'
+
+
+def test_final_answer_stops_at_the_end_of_its_line():
+    reply = 'Final answer: Paris\nBecause it is the capital.'
+
+    assert extract_final_answer(reply) == 'Paris'
+
+
+def test_final_answer_may_start_on_the_next_line():
+    assert extract_final_answer('Final answer:\nParis') == 'Paris'
+
+
+def test_missing_marker_gives_empty_answer_and_a_warning(caplog):
+    with caplog.at_level(logging.WARNING):
+        answer = extract_final_answer('The context says Paris, but')
+
+    assert answer == ''
+    assert 'Final answer' in caplog.text
+
+
+def test_cot_prompt_asks_for_the_marker_and_keeps_the_yes_no_rule():
+    assert 'Final answer:' in COT_SYSTEM_PROMPT
+    assert '"yes"' in COT_SYSTEM_PROMPT and '"no"' in COT_SYSTEM_PROMPT
+    assert 'only' in COT_SYSTEM_PROMPT.lower()
+
+
+def test_reasoning_generator_returns_the_final_answer(tmp_path):
+    chat = FakeChat(reply='The capital is in France. Final answer: Paris')
+
+    answer = Generator(chat, tmp_path, reasoning=True).answer('Why?', CONTEXTS)
+
+    assert answer == 'Paris'
+    assert chat.calls[0][0] == COT_SYSTEM_PROMPT
+
+
+def test_reasoning_answer_is_cached_together_with_the_full_reply(tmp_path):
+    first = FakeChat(reply='Step one. Final answer: Paris')
+    Generator(first, tmp_path, reasoning=True).answer('Why?', CONTEXTS)
+    second = FakeChat(reply='other')
+
+    answer = Generator(second, tmp_path, reasoning=True).answer(
+        'Why?', CONTEXTS
+    )
+
+    assert answer == 'Paris'
+    assert second.calls == []
+    [path] = tmp_path.iterdir()
+    assert json.loads(path.read_text(encoding='utf-8'))['reply'] == (
+        'Step one. Final answer: Paris'
+    )
+
+
+def test_direct_and_reasoning_answers_do_not_share_the_cache(tmp_path):
+    chat = FakeChat(reply='Final answer: Paris')
+
+    Generator(chat, tmp_path).answer('Why?', CONTEXTS)
+    Generator(chat, tmp_path, reasoning=True).answer('Why?', CONTEXTS)
+
+    assert len(chat.calls) == 2

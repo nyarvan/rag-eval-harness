@@ -7,12 +7,16 @@ an old answer.
 """
 import hashlib
 import json
+import logging
 import os
+import re
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
 from .data import Document
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_DIR = 'data/answer_cache'
 DEFAULT_MODEL = 'gpt-4o-mini'
@@ -25,6 +29,21 @@ SYSTEM_PROMPT = (
     'If the question can be answered with yes or no, reply with exactly '
     '"yes" or "no". '
 )
+
+FINAL_ANSWER_MARKER = 'Final answer:'
+COT_MAX_TOKENS = 512  # room for the reasoning; 64 would cut it off
+COT_SYSTEM_PROMPT = (
+    'Answer the question using only the provided context. '
+    'First think step by step in at most four short sentences: find the '
+    'facts you need in the context and combine them. '
+    f'Then write the answer on a new line as "{FINAL_ANSWER_MARKER} '
+    '<answer>". '
+    'The answer itself must be as short as possible: a few words, not a '
+    'sentence. '
+    'If the question can be answered with yes or no, the answer is exactly '
+    '"yes" or "no".'
+)
+_FINAL_ANSWER = re.compile(r'final answer:\s*(.*)', re.IGNORECASE)
 
 
 class ChatModel(Protocol):
@@ -88,6 +107,19 @@ def build_user_prompt(question: str, contexts: Sequence[Document]) -> str:
     return f'Context:\n{passages}\n\nQuestion: {question}\nAnswer:'
 
 
+def extract_final_answer(reply: str) -> str:
+    """The text after the last `Final answer:` marker, up to the line's end.
+
+    A reply without the marker (for example one cut off by the token limit)
+    gives an empty answer and a warning, so it is never mistaken for a guess.
+    """
+    matches = _FINAL_ANSWER.findall(reply)
+    if not matches:
+        logger.warning('No "%s" in reply: %r', FINAL_ANSWER_MARKER, reply[-80:])
+        return ''
+    return matches[-1].strip()
+
+
 def cache_key(model_name: str, system: str, user: str) -> str:
     """SHA-256 of the model name and both prompts, unambiguously encoded."""
     payload = json.dumps(
@@ -97,31 +129,42 @@ def cache_key(model_name: str, system: str, user: str) -> str:
 
 
 class Generator:
-    """Answer questions with a chat model, remembering answers on disk."""
+    """Answer questions with a chat model, remembering answers on disk.
+
+    With `reasoning` the model thinks first and the answer is taken from its
+    `Final answer:` line; the full reply is kept in the cache file.
+    """
 
     def __init__(
             self, chat: ChatModel, cache_dir: str | Path = DEFAULT_CACHE_DIR,
+            *, reasoning: bool = False,
     ):
         self._chat = chat
         self._cache_dir = Path(cache_dir)
+        self._reasoning = reasoning
+        self._system = COT_SYSTEM_PROMPT if reasoning else SYSTEM_PROMPT
 
     def answer(self, question: str, contexts: Sequence[Document]) -> str:
         """The model's stripped answer, from the cache when it is there."""
         user = build_user_prompt(question, contexts)
-        key = cache_key(self._chat.name, SYSTEM_PROMPT, user)
+        key = cache_key(self._chat.name, self._system, user)
         path = self._cache_dir / f'{key}.json'
         if path.exists():
             return json.loads(path.read_text(encoding='utf-8'))['answer']
-        answer = self._chat.complete(SYSTEM_PROMPT, user).strip()
-        self._write(path, user, answer)
+        reply = self._chat.complete(self._system, user)
+        answer = (
+            extract_final_answer(reply) if self._reasoning else reply.strip()
+        )
+        self._write(path, user, reply, answer)
         return answer
 
-    def _write(self, path: Path, user: str, answer: str) -> None:
+    def _write(self, path: Path, user: str, reply: str, answer: str) -> None:
         """Store the answer with its inputs; the file appears all at once."""
         record = {
             'model': self._chat.name,
-            'system': SYSTEM_PROMPT,
+            'system': self._system,
             'user': user,
+            'reply': reply,
             'answer': answer,
         }
         self._cache_dir.mkdir(parents=True, exist_ok=True)
