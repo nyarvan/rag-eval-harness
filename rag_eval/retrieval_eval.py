@@ -10,7 +10,11 @@ import argparse
 from collections.abc import Mapping, Sequence
 from statistics import fmean
 
+from significance import format_comparisons
+
 from .bm25 import BM25Retriever
+from .compare import DEFAULT_KS as DEFAULT_COMPARE_KS
+from .compare import compare_rankings
 from .data import DEFAULT_N, Document, Question, load_hotpotqa
 from .hybrid import DEFAULT_DEPTH, HybridRetriever, Retriever
 from .metrics import all_gold_at_k, recall_at_k
@@ -21,8 +25,10 @@ DEFAULT_KS = (2, 5, 10, 20, 30)
 DEFAULT_RETRIEVERS = ('dense', 'bm25', 'hybrid')
 RETRIEVER_CHOICES = (
     'dense', 'bm25', 'hybrid', 'dense+rerank', 'hybrid+rerank',
+    'hybrid+rerank50',
 )
 EMBEDDING_MODEL = 'bge_m3'
+WIDE_CANDIDATES_K = 50  # the larger candidate pool of 'hybrid+rerank50'
 
 
 def score_rankings(
@@ -85,18 +91,20 @@ def build_retrievers(
 ) -> dict[str, Retriever]:
     """The named retrievers; the ones they share are built once."""
     dense = DenseRetriever(EMBEDDING_MODEL, documents, subset_size=DEFAULT_N)
-    bm25 = BM25Retriever(documents) if (
-        'bm25' in names or 'hybrid' in names or 'hybrid+rerank' in names
-    ) else None
+    needs_bm25 = any(name.split('+')[0] in ('bm25', 'hybrid') for name in names)
+    bm25 = BM25Retriever(documents) if needs_bm25 else None
     hybrid = HybridRetriever([dense, bm25], depth=depth) if bm25 else None
     built = {
-        'dense': dense,
-        'bm25': bm25,
-        'hybrid': hybrid,
-        'dense+rerank': RerankedRetriever(dense, documents),
-        'hybrid+rerank': hybrid and RerankedRetriever(hybrid, documents),
+        'dense': lambda: dense,
+        'bm25': lambda: bm25,
+        'hybrid': lambda: hybrid,
+        'dense+rerank': lambda: RerankedRetriever(dense, documents),
+        'hybrid+rerank': lambda: RerankedRetriever(hybrid, documents),
+        'hybrid+rerank50': lambda: RerankedRetriever(
+            hybrid, documents, candidates_k=WIDE_CANDIDATES_K
+        ),
     }
-    return {name: built[name] for name in names}
+    return {name: built[name]() for name in names}
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -111,7 +119,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         '--depth', type=int, default=DEFAULT_DEPTH,
         help='how deep each retriever is asked inside the hybrid'
     )
+    parser.add_argument(
+        '--compare', action='store_true',
+        help='also compare every retriever with the first one (paired)'
+    )
+    parser.add_argument(
+        '--compare-ks', type=int, nargs='+', default=DEFAULT_COMPARE_KS
+    )
     args = parser.parse_args(argv)
+    if max(args.compare_ks) > max(args.ks):
+        parser.error('--compare-ks must not exceed the largest --ks')
+    if args.compare and len(args.retrievers) < 2:
+        parser.error('--compare needs at least two retrievers')
     if max(args.ks) > DEFAULT_CANDIDATES_K and any(
             'rerank' in name for name in args.retrievers):
         parser.error(
@@ -141,6 +160,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         }
         print(f'\n=== {label} (n={len(indices)})')
         print(format_table(results, args.ks))
+        if args.compare:
+            comparisons = compare_rankings(
+                {
+                    name: [ranked[i] for i in indices]
+                    for name, ranked in rankings.items()
+                },
+                [questions[i] for i in indices], ks=args.compare_ks,
+            )
+            print(f'\n{format_comparisons(comparisons)}')
 
 
 if __name__ == '__main__':
