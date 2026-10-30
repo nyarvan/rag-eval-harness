@@ -1,7 +1,8 @@
 import pytest
 
-from rag_eval.compare import compare_rankings
+from rag_eval.compare import compare_rankings, compare_runs
 from rag_eval.data import Question
+from rag_eval.records import RunRecord
 
 
 def make_question(question_id: str, gold=('A', 'B')) -> Question:
@@ -141,3 +142,86 @@ def test_no_questions_are_rejected():
 def test_a_ranking_per_question_is_required():
     with pytest.raises(ValueError):
         compare_rankings({'a': GOOD, 'b': GOOD[:2]}, QUESTIONS)
+
+
+def make_record(question_id, answer='right', retrieved=('A', 'B'),
+                gold=('A', 'B')) -> RunRecord:
+    return RunRecord(
+        question_id=question_id, question=f'q{question_id}?', contexts=(),
+        answer=answer, reference='right', retrieved=retrieved,
+        gold_titles=gold,
+    )
+
+
+RIGHT = [make_record(str(i)) for i in range(1, 4)]
+WRONG = [make_record(str(i), answer='wrong') for i in range(1, 4)]
+
+
+def by_metric(comparisons):
+    return {c.metric: c for c in comparisons}
+
+
+def test_runs_are_compared_on_exact_match_and_f1():
+    comparisons = compare_runs({'wrong': WRONG, 'right': RIGHT})
+
+    assert sorted(by_metric(comparisons)) == ['em', 'f1']
+    em = by_metric(comparisons)['em']
+    assert (em.a, em.b) == ('right', 'wrong')
+    assert em.mean_diff == pytest.approx(1.0)
+    assert (em.wins, em.losses) == (3, 0)
+    assert em.changed == ('1', '2', '3')
+
+
+def test_runs_are_matched_by_question_id_not_by_position():
+    shuffled = [RIGHT[2], RIGHT[0], RIGHT[1]]
+
+    comparisons = compare_runs({'right': RIGHT, 'shuffled': shuffled})
+
+    assert by_metric(comparisons)['em'].mean_diff == 0.0
+    assert by_metric(comparisons)['em'].changed == ()
+
+
+def test_the_first_run_is_the_baseline_by_default():
+    comparisons = compare_runs({'a': RIGHT, 'b': WRONG, 'c': RIGHT})
+
+    assert {(c.a, c.b) for c in comparisons} == {('b', 'a'), ('c', 'a')}
+
+
+def test_retrieval_metrics_are_added_for_the_requested_ks():
+    weak = [make_record(str(i), retrieved=('A', 'C', 'B')) for i in (1, 2, 3)]
+
+    comparisons = compare_runs({'weak': weak, 'right': RIGHT}, ks=(2,))
+
+    assert {'em', 'f1', 'all_gold@2', 'recall@2'} == set(by_metric(comparisons))
+    assert by_metric(comparisons)['all_gold@2'].mean_diff == pytest.approx(1.0)
+
+
+def test_retrieval_metrics_need_gold_titles_in_every_record():
+    no_gold = [make_record(str(i), gold=()) for i in (1, 2, 3)]
+
+    with pytest.raises(ValueError, match='gold_titles'):
+        compare_runs({'a': RIGHT, 'b': no_gold}, ks=(2,))
+
+
+def test_runs_over_different_questions_are_rejected():
+    other = [make_record('1'), make_record('2'), make_record('9')]
+
+    with pytest.raises(ValueError, match='9'):
+        compare_runs({'a': RIGHT, 'b': other})
+
+
+def test_a_repeated_question_id_is_rejected():
+    twice = [make_record('1'), make_record('1'), make_record('2')]
+
+    with pytest.raises(ValueError, match='twice|repeated|duplicate'):
+        compare_runs({'a': RIGHT, 'b': twice})
+
+
+def test_two_runs_are_needed_to_compare():
+    with pytest.raises(ValueError):
+        compare_runs({'only': RIGHT})
+
+
+def test_an_unknown_baseline_is_rejected_for_runs():
+    with pytest.raises(ValueError):
+        compare_runs({'a': RIGHT, 'b': WRONG}, baseline='missing')
