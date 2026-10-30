@@ -219,3 +219,25 @@ def test_repeated_pair_is_scored_once(tmp_path):
     retriever.retrieve_many(questions, 2)
 
     assert len(scorer.scored_pairs) == 4
+
+
+def test_interrupted_scoring_keeps_the_chunks_already_scored(
+        tmp_path, monkeypatch):
+    from rag_eval import rerank
+    monkeypatch.setattr(rerank, 'SAVE_EVERY_PAIRS', 2)
+
+    class FailsOnSecondChunk(FakeScorer):
+        def predict(self, pairs, **kwargs):
+            if self.calls:
+                raise KeyboardInterrupt
+            return super().predict(pairs, **kwargs)
+
+    scorer = FailsOnSecondChunk({'A': 0.1, 'B': 0.9, 'C': 0.5, 'D': 0.7})
+    retriever, _ = make_retriever(tmp_path, scorer)
+    with pytest.raises(KeyboardInterrupt):
+        retriever.retrieve(make_question(), 4)
+
+    rescorer = FakeScorer({'A': 0.1, 'B': 0.9, 'C': 0.5, 'D': 0.7})
+    rerun, _ = make_retriever(tmp_path, rescorer)
+    assert rerun.retrieve(make_question(), 4) == ['B', 'D', 'C', 'A']
+    assert len(rescorer.scored_pairs) == 2  # only the unsaved chunk

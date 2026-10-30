@@ -21,6 +21,7 @@ DEFAULT_CANDIDATES_K = 30
 DEFAULT_CACHE_DIR = 'data/rerank_cache'
 MAX_LENGTH = 512  # tokens per pair; HotpotQA paragraphs are far shorter
 BATCH_SIZE = 16
+SAVE_EVERY_PAIRS = 2048  # pairs scored between cache saves
 
 
 class PairScorer(Protocol):
@@ -73,46 +74,49 @@ class RerankedRetriever:
         candidates = self._first_stage.retrieve_many(
             questions, self._candidates_k
         )
-        pairs = [
-            (question.question, [self._by_title[title] for title in titles])
-            for question, titles in zip(questions, candidates, strict=True)
-        ]
-        self._score_missing(pairs)
+        keys_per_question = []
+        unscored: dict[str, tuple[str, str]] = {}  # key -> (question, passage)
+        for question, titles in zip(questions, candidates, strict=True):
+            keys = []
+            for title in titles:
+                document = self._by_title[title]
+                key = _pair_key(question.question, document)
+                keys.append(key)
+                if key not in self._scores:
+                    unscored[key] = (
+                        question.question, format_context(document)
+                    )
+            keys_per_question.append(keys)
+        self._score_and_save(unscored)
         return [
-            self._rerank(question, titles, documents)[:k]
-            for (question, documents), titles in zip(
-                pairs, candidates, strict=True
-            )
+            self._rerank(titles, keys)[:k]
+            for titles, keys in zip(candidates, keys_per_question, strict=True)
         ]
 
     def _rerank(
-            self, question: str, titles: Sequence[str],
-            documents: Sequence[Document],
+            self, titles: Sequence[str], keys: Sequence[str],
     ) -> list[str]:
-        scores = [self._scores[_pair_key(question, d)] for d in documents]
+        scores = [self._scores[key] for key in keys]
         # sorted() is stable: equal scores keep the first-stage order
         order = sorted(range(len(titles)), key=lambda i: -scores[i])
         return [titles[i] for i in order]
 
-    def _score_missing(
-            self, questions: Sequence[tuple[str, Sequence[Document]]],
-    ) -> None:
-        """Score every uncached pair in one scorer call, then save the cache."""
-        missing: dict[str, tuple[str, str]] = {}
-        for question, documents in questions:
-            for document in documents:
-                key = _pair_key(question, document)
-                if key not in self._scores and key not in missing:
-                    missing[key] = (question, format_context(document))
-        if not missing:
-            return
-        predicted = self._get_scorer().predict(
-            list(missing.values()),
-            batch_size=BATCH_SIZE, show_progress_bar=False,
-        )
-        for key, score in zip(missing, predicted, strict=True):
-            self._scores[key] = float(score)
-        self._write_cache()
+    def _score_and_save(self, unscored: dict[str, tuple[str, str]]) -> None:
+        """Score the pairs in chunks, saving the cache after each chunk.
+
+        One scorer call per chunk keeps batching efficient, and an
+        interrupted run loses at most one chunk of scores.
+        """
+        items = list(unscored.items())
+        for start in range(0, len(items), SAVE_EVERY_PAIRS):
+            chunk = items[start:start + SAVE_EVERY_PAIRS]
+            predicted = self._get_scorer().predict(
+                [pair for _, pair in chunk],
+                batch_size=BATCH_SIZE, show_progress_bar=False,
+            )
+            for (key, _), score in zip(chunk, predicted, strict=True):
+                self._scores[key] = float(score)
+            self._write_cache()
 
     def _get_scorer(self) -> PairScorer:
         if self._scorer is None:
