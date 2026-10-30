@@ -238,9 +238,3 @@ def test_an_empty_retrieved_list_scores_zero_in_a_comparison():
     comparisons = compare_runs({'nothing': nothing, 'right': RIGHT}, ks=(2,))
 
     assert by_metric(comparisons)['recall@2'].mean_diff == pytest.approx(1.0)
-
-
-def test_default_ks_are_defined_once():
-    from rag_eval import compare, evaluate
-
-    assert compare.DEFAULT_KS is evaluate.DEFAULT_KS

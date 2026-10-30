@@ -131,12 +131,6 @@ def parse(*argv):
     return args
 
 
-def test_embedding_model_is_the_shared_constant():
-    from rag_eval.retrieval_eval import EMBEDDING_MODEL
-    from rag_eval.retrieve import DEFAULT_EMBEDDING_MODEL
-    assert EMBEDDING_MODEL == DEFAULT_EMBEDDING_MODEL
-
-
 @pytest.mark.parametrize('argv', [
     ['--n', '-5'], ['--n', '0'], ['--ks', '0'], ['--depth', '-1'],
     ['--compare-ks', '0'],

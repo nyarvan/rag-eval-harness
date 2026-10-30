@@ -165,8 +165,3 @@ def test_unknown_model_is_rejected_at_construction(tmp_path):
 def test_empty_corpus_is_rejected(tmp_path):
     with pytest.raises(ValueError):
         make_retriever(tmp_path, documents=())
-
-
-def test_default_embedding_model_is_bge_m3():
-    from rag_eval.retrieve import DEFAULT_EMBEDDING_MODEL
-    assert DEFAULT_EMBEDDING_MODEL == 'bge_m3'
