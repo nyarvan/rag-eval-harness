@@ -118,8 +118,10 @@ dominant cost. Scores are cached, so a repeated run does not pay it.
   strong; a large open-domain corpus with rare names may behave differently.
 
 Caveats: one sample of 200 questions, one generator, one seed. Differences of a
-few points are not significant; for the reranking gain, 19 questions improved
-and 10 got worse in a paired comparison (p ≈ 0.14).
+few points are not significant. For the reranking gain in the final answers,
+a paired comparison gives EM +0.045 (95% interval [−0.005, +0.095], 19 better
+and 10 worse, p ≈ 0.14) and F1 +0.059 ([+0.007, +0.114], 28 better and 14
+worse, p ≈ 0.04).
 
 ### LLM judge (RAGAS)
 
@@ -221,6 +223,45 @@ Choose from `dense`, `bm25`, `hybrid`, `dense+rerank`, `hybrid+rerank` and
 `hybrid+rerank50`. Rerankers are built one at a time, because each holds a
 cross-encoder of about 2 GB.
 
+## Command line
+
+`cli.py` is one entry point over the modules above:
+
+```bash
+# run a pipeline (paid: prints an estimate and asks first)
+python cli.py run --n 200 --rerank --out runs/mine.jsonl
+
+# score a run file: free metrics, and the RAGAS judge with --ragas (paid, asks)
+python cli.py eval runs/mine.jsonl
+python cli.py eval runs/mine.jsonl --ragas
+
+# paired comparison of run files; the first one is the baseline
+python cli.py compare runs/dense_200.jsonl runs/dense_rerank_200.jsonl
+```
+
+`run` takes the flags of `rag_eval.run`, and `eval` the flags of
+`rag_eval.ragas_eval`, plus `--ragas`, `--ks` and `--yes`. `eval` and
+`compare` work on a run file from any RAG pipeline that fits the format below:
+`eval` gives EM and F1, and `recall@k` and `all_gold@k` when the records carry
+`retrieved` and `gold_titles`.
+
+```
+comparison                    metric  mean diff  95% CI              better/worse  p (sign)
+dense_rerank_200 - dense_200  em      +0.0450    [-0.0050, +0.0950]  19/10         0.136
+dense_rerank_200 - dense_200  f1      +0.0592    [+0.0065, +0.1136]  28/14         0.044
+```
+
+Paid steps do not start by themselves. Before a model is called, the command
+prints the number of requests, tokens and an approximate price, then asks
+`[y/N]`. `--yes` skips the question; without a terminal and without `--yes`
+nothing starts. The estimate is an upper bound for a fresh run (cached replies
+are free). Its prices are approximate list prices that may be out of date, a
+model without a known price gets no dollar figure, and for RAGAS only the
+total of about 10.5 judge requests per question was measured.
+
+Exit codes: 0 done, 1 a paid step was not confirmed, 2 invalid input (an
+unreadable or invalid file is reported with its path and line).
+
 ## Run file format
 
 One JSON object per question. A run file from any RAG pipeline works, as long
@@ -257,6 +298,9 @@ and `reference` are the names RAGAS expects.
 | [rag_eval/compare.py](rag_eval/compare.py) | Paired comparison of retrievers per question |
 | [rag_eval/retrieval_eval.py](rag_eval/retrieval_eval.py) | Retrieval-only evaluation with tables and comparisons |
 | [rag_eval/latency.py](rag_eval/latency.py) | Time per question for each retriever |
+| [rag_eval/evaluate.py](rag_eval/evaluate.py) | Free metrics (EM, F1, recall, all-gold) for any run file |
+| [rag_eval/cost.py](rag_eval/cost.py) | Approximate cost of paid steps and the confirmation before them |
+| [rag_eval/cli.py](rag_eval/cli.py) | The `run`, `eval` and `compare` commands (`cli.py` launches it) |
 
 ## Design notes
 
@@ -270,6 +314,9 @@ and `reference` are the names RAGAS expects.
   (which includes its sampling settings) together with both prompts; the
   reranker cache keys on the question and passage text; embedding caches check
   the document ids. Changing a prompt never returns an old answer.
+- **Paid steps ask first.** A model call that costs money is announced with an
+  estimate and needs a yes; a script that forgets `--yes` stops instead of
+  spending.
 - **Shared statistics.** The paired bootstrap and the sign test are
   `significance.py` of `embedding-benchmark-harness`, so the numbers of both
   projects are directly comparable.
@@ -287,12 +334,12 @@ and `reference` are the names RAGAS expects.
 pytest
 ```
 
-The suite (214 tests) covers the metrics on toy data, the retrievers, rank
+The suite (267 tests) covers the metrics on toy data, the retrievers, rank
 fusion, comparisons, generation, the run pipeline and RAGAS scoring with fake
 models. Tests marked `integration` download the real HotpotQA split and need
 network on the first run.
 
 ## Status
 
-Done: data, retrieval, reranking, generation, metrics, run files, RAGAS scoring.
-Planned: a single command-line entry point (`cli.py` is an empty placeholder).
+Done: data, retrieval (dense, BM25, hybrid), reranking, generation, metrics,
+run files with validation, RAGAS scoring, paired comparisons, command line.
