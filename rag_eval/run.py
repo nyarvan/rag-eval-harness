@@ -12,6 +12,7 @@ from typing import Protocol
 
 from .data import DEFAULT_N, Document, Question, load_hotpotqa
 from .generate import COT_MAX_TOKENS, Generator, OpenAIChat, format_context
+from .generate import DEFAULT_MODEL as DEFAULT_CHAT_MODEL
 from .metrics import all_gold_at_k, exact_match, f1, recall_at_k
 from .records import RunRecord, write_records
 from .rerank import DEFAULT_CANDIDATES_K, RerankedRetriever
@@ -85,6 +86,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument('--n', type=int, default=DEFAULT_RUN_QUESTIONS)
     parser.add_argument('--out', default=DEFAULT_OUT)
     parser.add_argument('--model', default=DEFAULT_MODEL)
+    parser.add_argument(
+        '--chat-model', default=DEFAULT_CHAT_MODEL,
+        help='OpenAI model that writes the answers'
+    )
     parser.add_argument('--retrieve-k', type=int, default=RETRIEVE_K)
     parser.add_argument('--context-k', type=int, default=CONTEXT_K)
     parser.add_argument(
@@ -118,11 +123,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             retriever, subset.documents, candidates_k=args.candidates_k
         )
     if args.cot:
-        generator = Generator(
-            OpenAIChat(max_tokens=COT_MAX_TOKENS), reasoning=True
-        )
+        chat = OpenAIChat(args.chat_model, max_tokens=COT_MAX_TOKENS)
     else:
-        generator = Generator(OpenAIChat())
+        chat = OpenAIChat(args.chat_model)
+    generator = Generator(chat, reasoning=args.cot)
     records = run_dense(
         questions, subset.documents, retriever, generator,
         retrieve_k=args.retrieve_k, context_k=args.context_k,
