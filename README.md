@@ -3,13 +3,14 @@
 A small, reproducible harness for evaluating a RAG pipeline on **HotpotQA**
 (distractor setting). It retrieves paragraphs with a dense model, optionally
 reranks them with a cross-encoder, generates short answers with an LLM, and
-scores every stage with metrics that need no LLM.
+scores every stage with metrics that need no LLM and with an LLM judge
+(RAGAS).
 
 ```
 question ──► dense search ──► top-30 ──► cross-encoder rerank ──► top-5 ──► LLM ──► answer
              (bge-m3)                    (bge-reranker-v2-m3)               (gpt-4o-mini)
                 │                                │                                │
-          recall@k / all_gold@k            recall@k / all_gold@k                EM / F1
+          recall@k / all_gold@k            recall@k / all_gold@k          EM / F1, RAGAS
 ```
 
 ## Results
@@ -56,6 +57,30 @@ Caveats: one sample of 200 questions, one generator, one seed. Differences of a
 few points are not significant; for the reranking gain, 19 questions improved
 and 10 got worse in a paired comparison (p ≈ 0.14).
 
+### LLM judge (RAGAS)
+
+EM punishes correct answers that differ from the reference span, so the same
+runs are also scored by an LLM judge (`gpt-4o-mini`) with four RAGAS metrics:
+
+| Metric | What it checks | dense | + rerank |
+|---|---|---|---|
+| `factual_correctness` | the answer against the reference | 0.702 | 0.738 |
+| `faithfulness` | the answer is supported by the contexts | 0.647 | 0.701 |
+| `context_recall` | the contexts contain what the reference says | 0.775 | 0.865 |
+| `context_precision` | useful contexts are ranked first | 0.589 | 0.646 |
+
+- The judge rates answers about 24 points above EM (0.702 against 0.455 for
+  dense, 0.738 against 0.500 with reranking). Both measures rank the two
+  configurations the same way; only the absolute level differs.
+- Reranking improves the retrieval metrics reliably (`context_recall` +0.09,
+  `context_precision` +0.06; p ≤ 0.003 in a sign test on per-question changes).
+  The gain in `factual_correctness` (+0.035) is not significant (p ≈ 0.23).
+- Read two metrics with care. `context_precision` is unreliable for
+  `comparison` questions (about 0.3), where the reference is a bare yes/no or a
+  short name. `faithfulness` can penalize correct answers that are inferred
+  rather than quoted. The judge is the same model as the generator, which may
+  inflate absolute scores; it likely affects both configurations alike.
+
 ## Quick start
 
 Python 3.11+. The `embedding-benchmark-harness` package is a dependency.
@@ -79,6 +104,9 @@ python -m rag_eval.run --n 200 --rerank --out runs/dense_rerank_200.jsonl
 
 # vary how many paragraphs the generator reads
 python -m rag_eval.run --n 200 --context-k 10 --out runs/dense_200_ctx10.jsonl
+
+# score a run file with the RAGAS metrics (about 2000 judge calls per 200 questions)
+python -m rag_eval.ragas_eval runs/dense_rerank_200.jsonl
 ```
 
 The first run downloads `bge-m3` (about 2 GB) and encodes the corpus; the
@@ -102,6 +130,13 @@ Options of `rag_eval.run`:
 
 The script prints `recall@k`, `all_gold@k`, EM and F1 and writes a JSONL run
 file.
+
+`rag_eval.ragas_eval` reads a run file and writes `runs/ragas_<name>.jsonl`:
+one object per question with its id and the four metric scores (`null` where a
+metric failed). Options: `--n` (first N records), `--judge` (default
+`gpt-4o-mini`), `--concurrency` (default 8), `--out`, `--env-file`. Judge
+replies are cached on disk, so repeating a run is free; a full 200-question run
+took about 15 minutes.
 
 ## Run file format
 
@@ -129,6 +164,7 @@ One JSON object per question:
 | [rag_eval/metrics.py](rag_eval/metrics.py) | `recall_at_k`, `all_gold_at_k`, EM, F1 |
 | [rag_eval/records.py](rag_eval/records.py) | Run-file record and JSONL read/write |
 | [rag_eval/run.py](rag_eval/run.py) | The run: retrieve, generate, summarize, save |
+| [rag_eval/ragas_eval.py](rag_eval/ragas_eval.py) | RAGAS scoring of a run file with an LLM judge |
 
 ## Design notes
 
@@ -156,12 +192,11 @@ One JSON object per question:
 pytest
 ```
 
-The suite (107 tests) covers the metrics on toy data, retrieval, reranking,
-generation and the run pipeline with fake models. Tests marked `integration`
+The suite (119 tests) covers the metrics on toy data, retrieval, reranking,
+generation, the run pipeline and RAGAS scoring with fake models. Tests marked `integration`
 download the real HotpotQA split and need network on the first run.
 
 ## Status
 
-Done: data, retrieval, reranking, generation, metrics, run files.
-Planned: RAGAS evaluation of the run files (`rag_eval/ragas_eval.py` and
-`cli.py` are empty placeholders), an LLM judge as a fairer alternative to EM.
+Done: data, retrieval, reranking, generation, metrics, run files, RAGAS scoring.
+Planned: a single command-line entry point (`cli.py` is an empty placeholder).
