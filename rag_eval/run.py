@@ -83,6 +83,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument('--n', type=int, default=DEFAULT_RUN_QUESTIONS)
     parser.add_argument('--out', default=DEFAULT_OUT)
     parser.add_argument('--model', default=DEFAULT_MODEL)
+    parser.add_argument('--retrieve-k', type=int, default=RETRIEVE_K)
+    parser.add_argument('--context-k', type=int, default=CONTEXT_K)
     parser.add_argument(
         '--env-file', help='dotenv file with OPENAI_API_KEY (not printed)'
     )
@@ -98,7 +100,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         args.model, subset.documents, subset_size=DEFAULT_N
     )
     generator = Generator(OpenAIChat())
-    records = run_dense(questions, subset.documents, retriever, generator)
+    records = run_dense(
+        questions, subset.documents, retriever, generator,
+        retrieve_k=args.retrieve_k, context_k=args.context_k,
+    )
     write_records(args.out, records)
     for name, value in summarize(records).items():
         print(f'{name}: {value:.3f}')
