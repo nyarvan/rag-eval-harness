@@ -128,8 +128,31 @@ def execute(args: argparse.Namespace) -> None:
     print(f'{len(records)} records -> {args.out}')
 
 
+def check_flags(args: argparse.Namespace) -> None:
+    """Raise `ValueError` for flag combinations that would fail mid-run.
+
+    Called before anything is loaded or paid for.
+    """
+    if args.context_k > args.retrieve_k:
+        raise ValueError(
+            f'context_k ({args.context_k}) must not exceed '
+            f'retrieve_k ({args.retrieve_k})'
+        )
+    if args.rerank and args.retrieve_k > args.candidates_k:
+        raise ValueError(
+            f'retrieve_k ({args.retrieve_k}) must not exceed '
+            f'candidates_k ({args.candidates_k}) with --rerank'
+        )
+
+
 def main(argv: Sequence[str] | None = None) -> None:
-    execute(build_parser().parse_args(argv))
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        check_flags(args)
+    except ValueError as error:
+        parser.error(str(error))
+    execute(args)
 
 
 if __name__ == '__main__':

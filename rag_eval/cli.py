@@ -114,16 +114,10 @@ def _run_command(
         corpus_chars_fn: Callable[[], float],
         question_count_fn: Callable[[], int], confirm_fn: Callable[..., bool],
 ) -> int:
-    if args.context_k > args.retrieve_k:
-        return _invalid(ValueError(
-            f'context_k ({args.context_k}) must not exceed '
-            f'retrieve_k ({args.retrieve_k})'
-        ))
-    if args.rerank and args.retrieve_k > args.candidates_k:
-        return _invalid(ValueError(
-            f'retrieve_k ({args.retrieve_k}) must not exceed '
-            f'candidates_k ({args.candidates_k}) with --rerank'
-        ))
+    try:
+        run.check_flags(args)
+    except ValueError as error:
+        return _invalid(error)
     system = COT_SYSTEM_PROMPT if args.cot else SYSTEM_PROMPT
     estimate = estimate_generation(
         args.chat_model, n_questions=min(args.n, question_count_fn()),

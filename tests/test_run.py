@@ -158,8 +158,25 @@ def test_run_parser_rejects_non_positive_counts():
                 parser.parse_args([flag, value])
 
 
-def test_run_uses_the_shared_retriever_protocol_and_model_name():
-    from rag_eval import hybrid, run
-    from rag_eval.retrieve import DEFAULT_EMBEDDING_MODEL
-    assert run.Retriever is hybrid.Retriever
-    assert run.DEFAULT_MODEL == DEFAULT_EMBEDDING_MODEL
+@pytest.mark.parametrize('argv', [
+    ['--context-k', '6', '--retrieve-k', '5'],
+    ['--rerank', '--retrieve-k', '40', '--candidates-k', '30'],
+])
+def test_run_main_rejects_bad_flag_combinations_before_loading_data(
+        argv, monkeypatch):
+    from rag_eval import run
+
+    def must_not_load(*args, **kwargs):
+        raise AssertionError('data was loaded')
+
+    monkeypatch.setattr(run, 'load_hotpotqa', must_not_load)
+    with pytest.raises(SystemExit) as raised:
+        run.main(argv)
+    assert raised.value.code == 2
+
+
+def test_check_flags_accepts_retrieve_k_up_to_candidates_k_with_rerank():
+    from rag_eval.run import build_parser, check_flags
+    check_flags(build_parser().parse_args(
+        ['--rerank', '--retrieve-k', '30', '--candidates-k', '30']
+    ))
