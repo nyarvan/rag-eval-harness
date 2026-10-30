@@ -27,15 +27,48 @@ question ──► dense search ──► top-30 ──► cross-encoder rerank 
 | dense + rerank, reasoning before the answer | 0.525 | 0.699 | 88.5% |
 | dense + rerank, `gpt-4o` as the generator | 0.550 | 0.722 | 88.5% |
 
-Retrieval quality (`all_gold@k`: both supporting paragraphs found in the top k,
-the key metric for multi-hop questions):
+### Retrieval
 
-| | @2 | @5 | @10 |
-|---|---|---|---|
-| dense | 0.460 | 0.745 | 0.875 |
-| dense + rerank (top-30 candidates) | 0.665 | 0.885 | 0.945 |
+`all_gold@k`: both supporting paragraphs found in the top k, the key metric for
+multi-hop questions.
 
-By question type at `@5`: bridge 0.706 → 0.865, comparison 0.967 → 1.000.
+| Retriever | @2 | @5 | @10 | @20 |
+|---|---|---|---|---|
+| dense (bge-m3) | 0.460 | 0.745 | 0.875 | 0.940 |
+| BM25 | 0.230 | 0.565 | 0.795 | 0.890 |
+| hybrid (RRF, k = 60) | 0.385 | 0.740 | 0.905 | 0.940 |
+| **dense + rerank** (30 candidates) | **0.665** | **0.885** | 0.945 | 0.955 |
+| hybrid + rerank (30 candidates) | 0.660 | 0.875 | 0.945 | 0.955 |
+| hybrid + rerank (50 candidates) | 0.660 | 0.875 | 0.950 | 0.975 |
+
+By question type at `@5`: bridge 0.706 → 0.865 with reranking, comparison
+0.967 → 1.000.
+
+Paired comparisons at `@5` (mean difference per question, 95% bootstrap
+interval, exact sign test on the questions where the two retrievers differ;
+the statistics are `significance.py` of `embedding-benchmark-harness`):
+
+| Comparison | Difference | 95% interval | Better / worse | p |
+|---|---|---|---|---|
+| dense + rerank − dense | +0.140 | [+0.085, +0.200] | 33 / 5 | < 0.001 |
+| BM25 − dense | −0.180 | [−0.250, −0.110] | 12 / 48 | < 0.001 |
+| hybrid − dense | −0.005 | [−0.060, +0.050] | 14 / 15 | 1.0 |
+| hybrid + rerank − dense + rerank | −0.010 | [−0.040, +0.015] | 3 / 5 | 0.73 |
+| hybrid + rerank (50) − dense + rerank | −0.010 | [−0.040, +0.015] | 3 / 5 | 0.73 |
+
+Time per question, one question at a time, on an 8 GB Apple-silicon laptop:
+
+| Retriever | Median |
+|---|---|
+| dense | 40 ms |
+| BM25 | 1 ms |
+| hybrid | 31 ms |
+| cross-encoder over 30 candidates (cold score cache) | 3–23 s |
+
+The reranker figure is a range because it depends on memory pressure: about
+3 s in an isolated micro-benchmark, about 6 s over the full 200-question run,
+23 s in a run with another model loaded beside it. Either way it is the
+dominant cost. Scores are cached, so a repeated run does not pay it.
 
 ### What the experiments showed
 
@@ -75,6 +108,14 @@ By question type at `@5`: bridge 0.706 → 0.865, comparison 0.967 → 1.000.
   paragraph is linked to the question only through the first one and sits
   around position 100 of 1990 in the dense ranking, out of reach of a reranker
   over the top 30.
+- **Hybrid search did not pay off here.** BM25 alone is much weaker than dense
+  (`all_gold@5` 0.565 against 0.745), and fusing the two with RRF leaves the
+  top 5 unchanged (0.740). BM25 does find some second paragraphs that dense
+  misses (one that dense ranks beyond 100 comes 6th in BM25), but fusion buries
+  them, and reranking does not lift them into the top 5 either: hybrid +
+  rerank (0.875) is level with dense + rerank (0.885). This is a small
+  distractor corpus of 1990 paragraphs where dense retrieval is already
+  strong; a large open-domain corpus with rare names may behave differently.
 
 Caveats: one sample of 200 questions, one generator, one seed. Differences of a
 few points are not significant; for the reranking gain, 19 questions improved
@@ -133,6 +174,12 @@ python -m rag_eval.run --n 200 --context-k 10 --out runs/dense_200_ctx10.jsonl
 
 # score a run file with the RAGAS metrics (about 2000 judge calls per 200 questions)
 python -m rag_eval.ragas_eval runs/dense_rerank_200.jsonl
+
+# compare retrievers without any LLM call, with paired significance
+python -m rag_eval.retrieval_eval --retrievers dense dense+rerank --compare
+
+# time each retriever, one question at a time
+python -m rag_eval.latency
 ```
 
 The first run downloads `bge-m3` (about 2 GB) and encodes the corpus; the
@@ -167,6 +214,13 @@ metric failed). Options: `--n` (first N records), `--judge` (default
 replies are cached on disk, so repeating a run is free; a full 200-question run
 took about 15 minutes.
 
+`rag_eval.retrieval_eval` compares retrievers with no LLM call: `all_gold@k`
+and `recall@k` for all questions and for each question type, and with
+`--compare` a paired comparison of every retriever with the first one listed.
+Choose from `dense`, `bm25`, `hybrid`, `dense+rerank`, `hybrid+rerank` and
+`hybrid+rerank50`. Rerankers are built one at a time, because each holds a
+cross-encoder of about 2 GB.
+
 ## Run file format
 
 One JSON object per question:
@@ -194,6 +248,11 @@ One JSON object per question:
 | [rag_eval/records.py](rag_eval/records.py) | Run-file record and JSONL read/write |
 | [rag_eval/run.py](rag_eval/run.py) | The run: retrieve, generate, summarize, save |
 | [rag_eval/ragas_eval.py](rag_eval/ragas_eval.py) | RAGAS scoring of a run file with an LLM judge |
+| [rag_eval/bm25.py](rag_eval/bm25.py) | `BM25Retriever`: `bm25s` with stemming and stopwords |
+| [rag_eval/hybrid.py](rag_eval/hybrid.py) | `rrf_fuse` (reciprocal rank fusion) and `HybridRetriever` |
+| [rag_eval/compare.py](rag_eval/compare.py) | Paired comparison of retrievers per question |
+| [rag_eval/retrieval_eval.py](rag_eval/retrieval_eval.py) | Retrieval-only evaluation with tables and comparisons |
+| [rag_eval/latency.py](rag_eval/latency.py) | Time per question for each retriever |
 
 ## Design notes
 
@@ -207,6 +266,9 @@ One JSON object per question:
   (which includes its sampling settings) together with both prompts; the
   reranker cache keys on the question and passage text; embedding caches check
   the document ids. Changing a prompt never returns an old answer.
+- **Shared statistics.** The paired bootstrap and the sign test are
+  `significance.py` of `embedding-benchmark-harness`, so the numbers of both
+  projects are directly comparable.
 - **Swappable parts.** Encoder, chat model and scorer are small protocols, so
   tests run on fakes, without model downloads or API keys.
 - **Why `gpt-4o-mini`.** The run needs `temperature=0`. Claude Haiku 5.5 rejects
@@ -221,9 +283,10 @@ One JSON object per question:
 pytest
 ```
 
-The suite (134 tests) covers the metrics on toy data, retrieval, reranking,
-generation, the run pipeline and RAGAS scoring with fake models. Tests marked `integration`
-download the real HotpotQA split and need network on the first run.
+The suite (195 tests) covers the metrics on toy data, the retrievers, rank
+fusion, comparisons, generation, the run pipeline and RAGAS scoring with fake
+models. Tests marked `integration` download the real HotpotQA split and need
+network on the first run.
 
 ## Status
 
