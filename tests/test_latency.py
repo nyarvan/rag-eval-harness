@@ -66,3 +66,11 @@ def test_median_is_reported_in_milliseconds():
 def test_median_of_no_times_is_rejected():
     with pytest.raises(ValueError):
         median_ms([])
+
+
+def test_latency_parser_rejects_non_positive_counts():
+    from rag_eval.latency import build_parser
+    parser = build_parser()
+    for flag in ('--n', '--rerank-n', '--k'):
+        with pytest.raises(SystemExit):
+            parser.parse_args([flag, '0'])

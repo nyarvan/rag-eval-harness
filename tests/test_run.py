@@ -147,3 +147,19 @@ def test_summarize_averages_retrieval_and_answer_metrics():
 def test_summarize_rejects_no_records():
     with pytest.raises(ValueError):
         summarize([])
+
+
+def test_run_parser_rejects_non_positive_counts():
+    from rag_eval.run import build_parser
+    parser = build_parser()
+    for flag in ('--n', '--retrieve-k', '--context-k', '--candidates-k'):
+        for value in ('0', '-5'):
+            with pytest.raises(SystemExit):
+                parser.parse_args([flag, value])
+
+
+def test_run_uses_the_shared_retriever_protocol_and_model_name():
+    from rag_eval import hybrid, run
+    from rag_eval.retrieve import DEFAULT_EMBEDDING_MODEL
+    assert run.Retriever is hybrid.Retriever
+    assert run.DEFAULT_MODEL == DEFAULT_EMBEDDING_MODEL

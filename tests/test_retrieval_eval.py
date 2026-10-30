@@ -121,3 +121,59 @@ def test_table_lists_retrievers_and_scores_per_metric():
     assert 'all_gold' in table and 'recall' in table
     assert 'good' in table
     assert '0.500' in table and '1.000' in table
+
+
+def parse(*argv):
+    from rag_eval.retrieval_eval import build_parser, validate_args
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    validate_args(parser, args)
+    return args
+
+
+def test_embedding_model_is_the_shared_constant():
+    from rag_eval.retrieval_eval import EMBEDDING_MODEL
+    from rag_eval.retrieve import DEFAULT_EMBEDDING_MODEL
+    assert EMBEDDING_MODEL == DEFAULT_EMBEDDING_MODEL
+
+
+@pytest.mark.parametrize('argv', [
+    ['--n', '-5'], ['--n', '0'], ['--ks', '0'], ['--depth', '-1'],
+    ['--compare-ks', '0'],
+])
+def test_non_positive_counts_are_rejected(argv):
+    with pytest.raises(SystemExit):
+        parse(*argv)
+
+
+def test_ks_above_the_rerank_pool_are_rejected():
+    with pytest.raises(SystemExit):
+        parse('--ks', '40', '--retrievers', 'hybrid+rerank')
+
+
+def test_wide_rerank_pool_allows_ks_up_to_fifty():
+    args = parse(
+        '--ks', '50', '--retrievers', 'hybrid+rerank50', '--compare-ks', '2'
+    )
+    assert max(args.ks) == 50
+
+
+def test_wide_rerank_next_to_a_plain_one_is_capped_at_the_plain_pool():
+    with pytest.raises(SystemExit):
+        parse('--ks', '40', '--retrievers', 'hybrid+rerank50', 'hybrid+rerank')
+
+
+def test_ks_above_the_depth_are_rejected_for_hybrid():
+    with pytest.raises(SystemExit):
+        parse('--ks', '20', '--depth', '10', '--retrievers', 'hybrid')
+
+
+def test_ks_above_the_depth_are_fine_without_a_hybrid():
+    args = parse('--ks', '20', '--depth', '10', '--retrievers', 'dense', 'bm25')
+    assert max(args.ks) == 20
+
+
+@pytest.mark.parametrize('retriever', ['hybrid+rerank', 'hybrid+rerank50'])
+def test_depth_below_the_rerank_pool_is_rejected_up_front(retriever):
+    with pytest.raises(SystemExit):
+        parse('--retrievers', 'dense', retriever, '--depth', '20', '--ks', '5')

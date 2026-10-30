@@ -15,6 +15,7 @@ from collections.abc import Callable, Sequence
 from statistics import median
 from typing import Protocol
 
+from .args import positive_int
 from .bm25 import BM25Retriever
 from .data import DEFAULT_N, Question, load_hotpotqa
 from .hybrid import DEFAULT_DEPTH, HybridRetriever
@@ -61,15 +62,20 @@ def median_ms(times: Sequence[float]) -> float:
     return median(times) * 1000
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """The flags of the latency command."""
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    parser.add_argument('--n', type=int, default=DEFAULT_QUESTIONS)
+    parser.add_argument('--n', type=positive_int, default=DEFAULT_QUESTIONS)
     parser.add_argument(
-        '--rerank-n', type=int, default=DEFAULT_RERANK_QUESTIONS,
+        '--rerank-n', type=positive_int, default=DEFAULT_RERANK_QUESTIONS,
         help='questions timed with the reranker (cold cache, slow)'
     )
-    parser.add_argument('--k', type=int, default=DEFAULT_K)
-    args = parser.parse_args(argv)
+    parser.add_argument('--k', type=positive_int, default=DEFAULT_K)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
 
     subset = load_hotpotqa()
     questions = subset.questions

@@ -7,6 +7,7 @@ import pytest
 from rag_eval.ragas_eval import (
     METRIC_INPUTS,
     RecordScores,
+    build_parser,
     read_scores,
     score_record,
     score_records,
@@ -169,3 +170,19 @@ def test_scores_round_trip_through_jsonl(tmp_path):
     write_scores(path, rows)
 
     assert read_scores(path) == rows
+
+
+def test_non_numeric_value_is_treated_as_missing():
+    metrics = fake_metrics(faithfulness=FakeMetric(value='n/a'))
+
+    scores = run(score_record(make_record(), metrics))
+
+    assert scores['faithfulness'] is None
+    assert scores['context_recall'] == 0.5
+
+
+def test_ragas_parser_rejects_non_positive_counts():
+    parser = build_parser()
+    for flags in (['--n', '-5'], ['--n', '0'], ['--concurrency', '0']):
+        with pytest.raises(SystemExit):
+            parser.parse_args(['run.jsonl', *flags])

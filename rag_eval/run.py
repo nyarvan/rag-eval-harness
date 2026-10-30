@@ -9,26 +9,22 @@ import argparse
 from collections.abc import Sequence
 from typing import Protocol
 
+from .args import positive_int
 from .data import DEFAULT_N, Document, Question, load_hotpotqa
 from .evaluate import evaluate_records
 from .generate import COT_MAX_TOKENS, Generator, OpenAIChat, format_context
 from .generate import DEFAULT_MODEL as DEFAULT_CHAT_MODEL
+from .hybrid import Retriever
 from .records import RunRecord, write_records
 from .rerank import DEFAULT_CANDIDATES_K, RerankedRetriever
-from .retrieve import DenseRetriever
+from .retrieve import DEFAULT_EMBEDDING_MODEL, DenseRetriever
 
 RETRIEVE_K = 10
 CONTEXT_K = 5
 RECALL_KS = (2, 5, 10)
 DEFAULT_RUN_QUESTIONS = 20
 DEFAULT_OUT = 'runs/dense.jsonl'
-DEFAULT_MODEL = 'bge_m3'
-
-
-class Retriever(Protocol):
-    def retrieve_many(
-            self, questions: Sequence[Question], k: int,
-    ) -> list[list[str]]: ...
+DEFAULT_MODEL = DEFAULT_EMBEDDING_MODEL
 
 
 class Answerer(Protocol):
@@ -73,21 +69,23 @@ def build_parser(add_help: bool = True) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__.split('\n')[0], add_help=add_help
     )
-    parser.add_argument('--n', type=int, default=DEFAULT_RUN_QUESTIONS)
+    parser.add_argument(
+        '--n', type=positive_int, default=DEFAULT_RUN_QUESTIONS
+    )
     parser.add_argument('--out', default=DEFAULT_OUT)
     parser.add_argument('--model', default=DEFAULT_MODEL)
     parser.add_argument(
         '--chat-model', default=DEFAULT_CHAT_MODEL,
         help='OpenAI model that writes the answers'
     )
-    parser.add_argument('--retrieve-k', type=int, default=RETRIEVE_K)
-    parser.add_argument('--context-k', type=int, default=CONTEXT_K)
+    parser.add_argument('--retrieve-k', type=positive_int, default=RETRIEVE_K)
+    parser.add_argument('--context-k', type=positive_int, default=CONTEXT_K)
     parser.add_argument(
         '--rerank', action='store_true',
         help='rerank the dense candidates with a cross-encoder'
     )
     parser.add_argument(
-        '--candidates-k', type=int, default=DEFAULT_CANDIDATES_K,
+        '--candidates-k', type=positive_int, default=DEFAULT_CANDIDATES_K,
         help='dense candidates passed to the reranker'
     )
     parser.add_argument(

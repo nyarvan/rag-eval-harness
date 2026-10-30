@@ -13,6 +13,7 @@ from statistics import fmean
 
 from significance import format_comparisons
 
+from .args import positive_int
 from .bm25 import BM25Retriever
 from .compare import DEFAULT_KS as DEFAULT_COMPARE_KS
 from .compare import compare_rankings
@@ -20,7 +21,7 @@ from .data import DEFAULT_N, Document, Question, load_hotpotqa
 from .hybrid import DEFAULT_DEPTH, HybridRetriever, Retriever
 from .metrics import all_gold_at_k, recall_at_k
 from .rerank import DEFAULT_CANDIDATES_K, RerankedRetriever
-from .retrieve import DenseRetriever
+from .retrieve import DEFAULT_EMBEDDING_MODEL, DenseRetriever
 
 DEFAULT_KS = (2, 5, 10, 20, 30)
 DEFAULT_RETRIEVERS = ('dense', 'bm25', 'hybrid')
@@ -28,7 +29,7 @@ RETRIEVER_CHOICES = (
     'dense', 'bm25', 'hybrid', 'dense+rerank', 'hybrid+rerank',
     'hybrid+rerank50',
 )
-EMBEDDING_MODEL = 'bge_m3'
+EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL
 WIDE_CANDIDATES_K = 50  # the larger candidate pool of 'hybrid+rerank50'
 
 
@@ -133,16 +134,21 @@ def retriever_factories(
     return {name: built[name] for name in names}
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """The flags of the retrieval evaluation command."""
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    parser.add_argument('--n', type=int, help='use only the first N questions')
-    parser.add_argument('--ks', type=int, nargs='+', default=DEFAULT_KS)
+    parser.add_argument(
+        '--n', type=positive_int, help='use only the first N questions'
+    )
+    parser.add_argument(
+        '--ks', type=positive_int, nargs='+', default=DEFAULT_KS
+    )
     parser.add_argument(
         '--retrievers', nargs='+', choices=RETRIEVER_CHOICES,
         default=list(DEFAULT_RETRIEVERS),
     )
     parser.add_argument(
-        '--depth', type=int, default=DEFAULT_DEPTH,
+        '--depth', type=positive_int, default=DEFAULT_DEPTH,
         help='how deep each retriever is asked inside the hybrid'
     )
     parser.add_argument(
@@ -150,25 +156,49 @@ def main(argv: Sequence[str] | None = None) -> None:
         help='also compare every retriever with the first one (paired)'
     )
     parser.add_argument(
-        '--compare-ks', type=int, nargs='+', default=DEFAULT_COMPARE_KS
+        '--compare-ks', type=positive_int, nargs='+',
+        default=DEFAULT_COMPARE_KS
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def max_k(name: str) -> int | None:
+    """The deepest ranking a retriever can give, or None when unbounded."""
+    if name == 'hybrid+rerank50':
+        return WIDE_CANDIDATES_K
+    if 'rerank' in name:
+        return DEFAULT_CANDIDATES_K
+    return None
+
+
+def validate_args(
+        parser: argparse.ArgumentParser, args: argparse.Namespace,
+) -> None:
+    """Reject flag combinations that would fail late (via `parser.error`)."""
     if max(args.compare_ks) > max(args.ks):
         parser.error('--compare-ks must not exceed the largest --ks')
     if args.compare and len(args.retrievers) < 2:
         parser.error('--compare needs at least two retrievers')
-    if max(args.ks) > DEFAULT_CANDIDATES_K and any(
-            'rerank' in name for name in args.retrievers):
+    limits = [max_k(name) for name in args.retrievers]
+    limit = min((k for k in limits if k is not None), default=None)
+    if limit is not None and max(args.ks) > limit:
         parser.error(
-            f'--ks above {DEFAULT_CANDIDATES_K} cannot be used with a reranker'
+            f'--ks above {limit} cannot be used with these rerankers'
         )
+    for name in args.retrievers:
+        if not name.startswith('hybrid'):
+            continue
+        # a reranker asks the hybrid for its whole candidate pool
+        needed = max_k(name) or max(args.ks)
+        if needed > args.depth:
+            parser.error(f'--depth must be at least {needed} for {name}')
 
-    subset = load_hotpotqa()
-    questions = subset.questions[:args.n]
-    factories = retriever_factories(
-        args.retrievers, subset.documents, args.depth
-    )
-    rankings = rank_in_turn(factories, questions, max(args.ks))
+
+def print_report(
+        rankings: Mapping[str, Sequence[Sequence[str]]],
+        questions: Sequence[Question], args: argparse.Namespace,
+) -> None:
+    """Print the tables for all questions and by type."""
     groups = {'all': list(range(len(questions)))}
     for kind in sorted({q.type for q in questions}):
         groups[kind] = [i for i, q in enumerate(questions) if q.type == kind]
@@ -191,6 +221,20 @@ def main(argv: Sequence[str] | None = None) -> None:
                 [questions[i] for i in indices], ks=args.compare_ks,
             )
             print(f'\n{format_comparisons(comparisons)}')
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    validate_args(parser, args)
+
+    subset = load_hotpotqa()
+    questions = subset.questions[:args.n]
+    factories = retriever_factories(
+        args.retrievers, subset.documents, args.depth
+    )
+    rankings = rank_in_turn(factories, questions, max(args.ks))
+    print_report(rankings, questions, args)
 
 
 if __name__ == '__main__':

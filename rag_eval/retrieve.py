@@ -16,6 +16,7 @@ from harness.models import get_spec
 from .data import Document, Question
 
 DEFAULT_DATASET = 'hotpotqa'
+DEFAULT_EMBEDDING_MODEL = 'bge_m3'
 DOCUMENT_MODE = InputMode.TITLE_TEXT
 
 

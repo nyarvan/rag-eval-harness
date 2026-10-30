@@ -25,6 +25,7 @@ from pathlib import Path
 from statistics import fmean
 from typing import Any, Protocol
 
+from .args import positive_int
 from .records import RunRecord, read_records
 
 logger = logging.getLogger(__name__)
@@ -168,10 +169,12 @@ async def _score_one(
     except Exception as error:  # a single judge failure must not end the run
         logger.warning('%s failed: %s: %s', name, type(error).__name__, error)
         return None
-    value = result.value
-    if value is None or math.isnan(value):
+    try:
+        value = float(result.value)
+    except (TypeError, ValueError):
+        logger.warning('%s gave a non-numeric score: %r', name, result.value)
         return None
-    return float(value)
+    return value if math.isfinite(value) else None
 
 
 def build_parser(add_help: bool = True) -> argparse.ArgumentParser:
@@ -181,13 +184,17 @@ def build_parser(add_help: bool = True) -> argparse.ArgumentParser:
     )
     parser.add_argument('run_file', help='run file written by rag_eval.run')
     parser.add_argument('--out', help='scores file (default: ragas_<name>)')
-    parser.add_argument('--n', type=int, help='score only the first N records')
+    parser.add_argument(
+        '--n', type=positive_int, help='score only the first N records'
+    )
     parser.add_argument('--judge', default=DEFAULT_JUDGE)
     parser.add_argument(
         '--metrics', nargs='+', choices=list(METRIC_INPUTS),
         default=list(METRIC_INPUTS), help='metrics to compute (default: all)'
     )
-    parser.add_argument('--concurrency', type=int, default=DEFAULT_CONCURRENCY)
+    parser.add_argument(
+        '--concurrency', type=positive_int, default=DEFAULT_CONCURRENCY
+    )
     parser.add_argument('--cache-dir', default=DEFAULT_CACHE_DIR)
     parser.add_argument(
         '--env-file', help='dotenv file with OPENAI_API_KEY (not printed)'
