@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-eval-harness"
+version = "0.1.0"
+description = "Reproducible evaluation of RAG pipelines on HotpotQA: retrieval, reranking, generation, RAGAS."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+# Lower bounds are the versions the results were produced with (exact pins
+# live in requirements.txt), so a downstream project can resolve them
+# together with its own dependencies, e.g. langgraph.
+dependencies = [
+    "embedding-benchmark-harness @ git+https://github.com/nyarvan/embedding-benchmark-harness.git@47edc16c96fb568b558273ba285cf9dfc67172d1",
+    "python-dotenv>=1.2.4",
+    "openai>=1.109.1",
+    "sentence-transformers>=6.2.0",
+    "numpy>=2.5.4",
+    "bm25s>=0.3.16",
+    "PyStemmer>=3.1.0",
+    "huggingface_hub>=2.3.0",
+    "pyarrow>=26.0.0",
+    "pydantic>=2.14.1",
+    "ragas>=0.4.3",
+    "langchain-community>=0.4.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.1.1", "pytest-cov>=7.1.0"]
+
+[project.scripts]
+rag-eval = "rag_eval.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["rag_eval*"]
